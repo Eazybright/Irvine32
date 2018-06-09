@@ -1,0 +1,30 @@
+﻿Build started 12/11/2011 7:33:47 PM.
+     1>Project "D:\AsmBook6\examples\Lib32\Irvine32_Library\Update_Irvine32_Library.vcxproj" on node 2 (build target(s)).
+     1>InitializeBuildStatus:
+         Creating "Debug\Irvine32_Library.unsuccessfulbuild" because "AlwaysCreate" was specified.
+       _MASM:
+       Skipping target "_MASM" because all output files are up-to-date with respect to the input files.
+       _MASM:
+         Assembling [Inputs]...
+         cmd.exe /C "C:\Users\Kip\AppData\Local\Temp\07a935a7784347f9be9c4c13e018a503.cmd"
+         ml.exe /c /nologo /Zi /Fo"Debug\floatio.obj" /W3 /errorReport:prompt  /Tafloatio.asm
+       _MASM:
+         Assembling [Inputs]...
+         cmd.exe /C "C:\Users\Kip\AppData\Local\Temp\ef5f9a1417c643318c7976021978c508.cmd"
+         ml.exe /c /nologo /Zi /Fo"Debug\Irvine32.obj" /W3 /errorReport:prompt  /TaIrvine32.asm
+       Link:
+         C:\Program Files\Microsoft Visual Studio 10.0\VC\bin\link.exe /ERRORREPORT:PROMPT /OUT:"D:\AsmBook6\examples\Lib32\Irvine32_Library\Debug\Irvine32_Library.exe" /NOLOGO user32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /ManifestFile:"Debug\Irvine32_Library.exe.intermediate.manifest" /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /DEBUG /PDB:"D:\AsmBook6\examples\Lib32\Irvine32_Library\Debug\Irvine32_Library.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"D:\AsmBook6\examples\Lib32\Irvine32_Library\Debug\Irvine32_Library.lib" /MACHINE:X86 Debug\cmdtest.obj
+         Debug\floatio.obj
+         Debug\Irvine32.obj
+         LINK : D:\AsmBook6\examples\Lib32\Irvine32_Library\Debug\Irvine32_Library.exe not found or not built by the last incremental link; performing full link
+         Update_Irvine32_Library.vcxproj -> D:\AsmBook6\examples\Lib32\Irvine32_Library\Debug\Irvine32_Library.exe
+       Manifest:
+         C:\Program Files\Microsoft SDKs\Windows\v7.0A\bin\mt.exe /nologo /verbose /outputresource:"D:\AsmBook6\examples\Lib32\Irvine32_Library\Debug\Irvine32_Library.exe;#1" /manifest Debug\Irvine32_Library.exe.intermediate.manifest
+       FinalizeBuildStatus:
+         Deleting file "Debug\Irvine32_Library.unsuccessfulbuild".
+         Touching "Debug\Irvine32_Library.lastbuildstate".
+     1>Done Building Project "D:\AsmBook6\examples\Lib32\Irvine32_Library\Update_Irvine32_Library.vcxproj" (build target(s)).
+
+Build succeeded.
+
+Time Elapsed 00:00:04.78

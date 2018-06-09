@@ -1,0 +1,3 @@
+﻿  Assembling ..\..\ch04\32 bit\AdditionTest.asm...
+AdditionTest.obj : error LNK2026: module unsafe for SAFESEH image.
+D:\Asmbook 7\examples\ch14\Project\Debug\Project.exe : fatal error LNK1281: Unable to generate SAFESEH image.

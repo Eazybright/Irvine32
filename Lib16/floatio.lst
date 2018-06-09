@@ -1,0 +1,1104 @@
+Microsoft (R) Macro Assembler Version 8.00.50727.42	    05/30/06 17:46:19
+floatio.asm						     Page 1 - 1
+
+
+				; Floating Point IO Procedures           (floatio.asm)
+
+				COMMENT @
+
+				Authors:  W. A. Barrett, San Jose State University,
+				          James Brink, Pacific Lutheran University
+				Used by Permission (July 2005).
+
+				Read and Write Float -- these work from keyboard or to screen, using
+				  Irvine's character fetching and putting functions.
+
+				ReadFloat -- accept a float in various formats, returning it in the top
+				             stack position of the FPU
+
+				WriteFloat -- Top stack value in the FPU is written out in a standard
+				              format.
+				              
+				ShowFPUStack -- Displays the floating-point unit's stack.
+
+				Updates:
+				7/18/05: Minor editing and formatting by Kip Irvine
+				7/19/05  Added checks for infinity and NaN.  
+				         James Brink, Pacific Lutheran University  (lines marked with *********)
+				7/20/05  WriteFloat no longer pops the stack. Kip Irvine.
+				7/22/05  Assembled in 16-bit mode.
+
+
+				THINGS TO FIX:
+					
+				1. If the exponent is over 999, it is shown incorrectly.
+				2. If a negative exponent is over 3 digits, the procedure halts.
+
+				@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@2
+
+				INCLUDE irvine16.inc
+			      C ; Irvine16.inc - Include file for programs using
+			      C ; the Irvine16.lib (Real-address mode library).
+			      C 
+			      C ; Last update: 7/29/05
+			      C 
+			      C .NOLIST
+			      C .LIST
+			      C 
+				INCLUDE macros.inc
+			      C .NOLIST
+			      C .LIST
+			      C 
+
+				; set this to 1 to display the FPU stack TOS value:
+ = 0000				DOSHOWTOP=0
+
+				;--------------------------------------------------------
+				showTop  MACRO  msg
+				     local smsg
+				;
+				; this macro supports the "showTop msg" scheme
+				;
+				;--------------------------------------------------------
+
+				IF DOSHOWTOP
+				     .data
+					 smsg byte  0dh, 0ah, msg,0
+				     .code
+				     mov   edx,offset smsg
+				     call  WriteString
+				     call  showTopF
+				ENDIF
+				     ENDM
+
+ 0000				.data	; variables shared by two or more procedures:
+
+ 0000 00000001 0000000A		pwr10  DWORD  1,10,100,1000,10000,100000,1000000,10000000,100000000,1000000000
+       00000064 000003E8
+       00002710 000186A0
+       000F4240 00989680
+       05F5E100 3B9ACA00
+ 0028 0D 0A 46 6C 6F 61		ErrMsg BYTE 0dh,0ah,"Floating point error",0dh,0ah,0
+       74 69 6E 67 20 70
+       6F 69 6E 74 20 65
+       72 72 6F 72 0D 0A
+       00
+
+ 0000				.code
+
+				;---------------------------------------------------------
+ 0000				ReadFloat PROC USES eax ebx ecx
+				   LOCAL expsign:SDWORD, sign:byte
+				;
+				; Reads a decimal floating-point number from the keyboard
+				; and translates to binary floating point. The value is
+				; placed in SP(0) of the floating-point stack.
+				;
+				;----------------------------------------------------------
+ 0041				.data
+ 0041 00000000			expint SDWORD  0
+ 0045 00000000			itmp       SDWORD  ?
+ 0049				power      REAL8   ?
+       0000000000000000
+
+ 000C				.code
+				    showTop  "R begin: "
+ 000C  E8 02AB				  call fpuSet
+ 000F  C6 46 FB 00		    mov  sign,0
+
+				    ; look for an optional + or - first
+ 0013  E8 0299			    call GetChar
+ 0016  3C 2B			    cmp  al,'+'
+ 0018  75 05			    jne  R1
+				    ; is a '+' -- ignore it; sign= 0
+ 001A  E8 0292			    call GetChar
+ 001D  EB 0A			    jmp  R2
+ 001F				R1:
+ 001F  3C 2D			    cmp  al,'-'
+ 0021  75 06			    jne  R2
+				    ; is a '-' -- sign= 1
+ 0023  E8 0289			    call GetChar
+ 0026  FE 46 FB			    inc  sign
+
+				    ; here we are done with the optional sign flag
+ 0029				R2:
+				    ; look for a digit in the mantissa part
+				    .IF (al >= '0' && al <= '9')
+ 0031  D9 EE			      fldz     ; push a 0.  ONE thing in FPU stack
+				      .WHILE (al >= '0' && al <= '9')
+ 0035  2C 30			        sub    al,'0'
+ 0037  66| 83 E0 0F		        and    eax,0Fh
+ 003B  66| A3 0045 R		        mov    itmp,eax
+ 003F  DC 0E 0123 R		        fmul   ten
+ 0043  DB 06 0045 R		        fild   itmp
+ 0047  DE C1			        fadd
+ 0049  E8 0263			        call   GetChar
+				      .ENDW
+
+				      ; decimal point in the mantissa?
+				      .IF (al == '.')
+ 005A  E8 0252			        call GetChar
+ 005D  D9 EE			        fldz     ; start the fractional part
+ 005F  DD 06 0123 R		        fld   ten  ; get the power part started
+ 0063  DD 1E 0049 R		        fstp  power  ; will be 10, 100, 1000, etc.
+				        .WHILE (al >= '0' && al <= '9')
+ 0069  2C 30			          sub  al,'0'
+ 006B  66| 83 E0 0F		          and  eax,0Fh
+ 006F  66| A3 0045 R		          mov  itmp,eax
+ 0073  DB 06 0045 R		          fild itmp
+ 0077  DC 36 0049 R		          fdiv power
+ 007B  DE C1			          fadd
+ 007D  DD 06 0049 R		          fld  power
+ 0081  DC 0E 0123 R		          fmul ten
+ 0085  DD 1E 0049 R		          fstp power
+ 0089  E8 0223			          call GetChar
+				        .ENDW
+ 0094  DE C1			        fadd       ; add the front end to the back end
+				      .ENDIF
+				    .ELSEIF (al == '.')
+ 009C  E8 0210			      call GetChar
+						  ; something like ".ddd"
+ 009F  D9 EE			      fldz	  ; ONE thing in the FPU stack
+ 00A1  DD 06 0123 R		      fld  ten
+ 00A5  DD 1E 0049 R		      fstp power
+				      .WHILE (al >= '0' && al <= '9')
+ 00AB  2C 30			        sub  al,'0'
+ 00AD  66| 83 E0 0F		        and  eax,0Fh
+ 00B1  66| A3 0045 R		        mov  itmp,eax
+ 00B5  DB 06 0045 R		        fild itmp
+ 00B9  DC 36 0049 R		        fdiv power
+ 00BD  DE C1			        fadd
+ 00BF  DD 06 0049 R		        fld  power
+ 00C3  DC 0E 0123 R		        fmul ten
+ 00C7  DD 1E 0049 R		        fstp power
+ 00CB  E8 01E1			        call GetChar
+				      .ENDW
+				    .ELSE
+					  ; neither ddd.ddd nor .ddd
+					  ; so it's a syntax error
+ 00D8  66| BA 00000028 R	      mov  edx,OFFSET ErrMsg
+ 00DE  E8 0000 E		      call WriteString
+ 00E1  D9 EE				    fldz      ; return a 1.0 in any case
+ 00E3  E8 01EC				    call fpuReset
+					    showTop "R end: "
+				      ret
+				    .ENDIF
+				      
+				    ; OK -- now we have the ddd.ddd part in ST(0)
+				    ; Now look for an exponent
+					; We still have the mantissa in the stack:  ONE thing
+
+				    .IF (al=='E' || al=='e')
+ 00F8  66| C7 46 FC		      mov  expsign,1
+       00000001
+ 0100  E8 01AC			      call GetChar
+				      .IF (al=='+')
+ 0107  E8 01A5			        call GetChar
+				      .ELSEIF (al=='-')
+ 0110  66| C7 46 FC		        mov  expsign,-1
+       FFFFFFFF
+ 0118  E8 0194			        call GetChar
+				      .ENDIF
+ 011B  66| C7 06 0041 R		      mov  expint,0
+       00000000
+				      .WHILE (al>='0' && al<= '9')
+ 0126  2C 30			        sub  al,'0'
+ 0128  66| 25 000000FF		        and  eax,0FFh
+ 012E  66| 8B D8		        mov  ebx,eax
+ 0131  66| B8 0000000A		        mov  eax,10
+ 0137  66| F7 26 0041 R		        mul  expint
+ 013C  66| 03 C3		        add  eax,ebx
+ 013F  66| A3 0041 R		        mov  expint,eax
+ 0143  E8 0169					call GetChar
+				      .ENDW
+
+				      ; power10 gets expsign*10^expint, stuffs it in exponent.
+				      ; Result returned in FPU.
+				      
+ 014E  66| A1 0041 R		      mov  eax,expint
+ 0152  66| F7 6E FC		      imul expsign
+ 0156  E8 019A			      call power10    	; TWO things in the FPU stack
+ 0159  DE C9			      fmul     	; mantissa is sitting underneath; ONE thing left over
+				    .ENDIF
+				    .IF (sign==1)
+ 0161  D9 E0			      fchs
+				    .ENDIF
+ 0163  E8 016C				  call fpuReset    	; shouldn't affect stack position
+					  showTop  "R end: "
+					  
+				    ret    	; result should be in FPU top
+ 0170				ReadFloat  ENDP
+
+
+				;------------------------------------------------------------
+ 0170				ShowFPUStack PROC USES  eax
+				    LOCAL  temp:REAL8
+				;
+				; Prints the FPU stack in decimal exponential format.
+				; Written by James Brink, Pacific Lutheran University.
+				; Used by permission.
+				;
+				; Adapted by Kip Irvine, 7/18/05.  
+				; Revised 7/20/05.
+				;
+				; Receives:  Nothing
+				; Returns:  Nothing
+				;
+				; Technique:
+				;     Uses FINCSTP move the stack top, effectly popping 
+				;     the stack without actually removing values.
+				; Note:
+				;     This procedure clears the exception bits in the FPU status register 
+				;     before it terminates.  This includes B, ES, SF, PE, UE, OE, ZE, DE, 
+				;     and IE bits.  
+				; Uses:  
+				;	  WriteFloat, mWrite, Crlf, WriteDec
+				;----------------------------------------------------------------
+ = 003F				ControlWordMask = 0000000000111111b  ; Used to mask exception bits
+ 0051				.data
+ 0051 0000			SavedCWord WORD ?   ; Control word when the procedure is started
+ 0053 0000			UsedCWord  WORD ?   ; Control word used by procedure
+
+ 0178				.code
+				; Write a header message.
+					mWrite  <0Dh,0Ah,"------ FPU Stack ------", 0Dh, 0Ah>
+ 0055			     1		.data		
+ 0055 0D 0A 2D 2D 2D 2D	     1		??0003 BYTE 0Dh,0Ah,"------ FPU Stack ------", 0Dh, 0Ah,0		
+       2D 2D 20 46 50 55
+       20 53 74 61 63 6B
+       20 2D 2D 2D 2D 2D
+       2D 0D 0A 00
+ 0178			     1		.code
+ 0178  66| 52		     1		push edx
+ 017A  66| BA 00000055 R     1		mov  edx,OFFSET ??0003
+ 0180  E8 0000 E	     1		call WriteString
+ 0183  66| 5A		     1		pop  edx
+
+				; Set the control word to mask the exception bits
+ 0185  9B DB E2			        fclex               ; Clear pending exceptions
+ 0188  9B D9 3E 0051 R		        fstcw   SavedCWord  ; Get copy of CW used to restore original
+ 018D  9B D9 3E 0053 R		        fstcw   UsedCWord
+ 0192  83 0E 0053 R 3F		        or      UsedCWord, ControlWordMask
+ 0197  D9 2E 0053 R		        fldcw   usedCWord   ; Mask exception bits
+
+				; Set up counter n for SP(n)
+ 019B  66| B8 00000000			mov	eax,0
+				       
+				; Display the stack (loop)
+
+ 01A1				LDisplay:    
+					mWrite  "ST("	; Display stack index
+ 0071			     1		.data		
+ 0071 53 54 28 00	     1		??0004 BYTE "ST(",0		
+ 01A1			     1		.code
+ 01A1  66| 52		     1		push edx
+ 01A3  66| BA 00000071 R     1		mov  edx,OFFSET ??0004
+ 01A9  E8 0000 E	     1		call WriteString
+ 01AC  66| 5A		     1		pop  edx
+ 01AE  E8 0000 E			call    WriteDec
+					mWrite  "): "
+ 0075			     1		.data		
+ 0075 29 3A 20 00	     1		??0005 BYTE "): ",0		
+ 01B1			     1		.code
+ 01B1  66| 52		     1		push edx
+ 01B3  66| BA 00000075 R     1		mov  edx,OFFSET ??0005
+ 01B9  E8 0000 E	     1		call WriteString
+ 01BC  66| 5A		     1		pop  edx
+
+				; Write the value of ST(n) and go to new line.
+				; WriteFloat pops the value from the stack, so we save
+				; and restore it to compensate.
+
+				; KRI 7/20/05: WriteFloat no longer pops the value from the stack,
+				; so I commented out the two calls to FST.
+
+					;fst	temp	; save ST(0)
+ 01BE  E8 001B				call	WriteFloat	; write ST(0) & pop
+				 	;fld	temp	; restore ST(0)
+ 01C1  E8 0000 E			call	Crlf
+
+				; Move the top of stack pointer.
+ 01C4  D9 F7				fincstp             
+
+				; Increment count and repeat for 8 values.
+ 01C6  66| 40				inc	eax 
+ 01C8  66| 83 F8 08			cmp	eax,8
+ 01CC  7C D3				jl	LDisplay
+
+ 01CE				LReturn:
+				; clear any exceptions and restore original control word before returning
+ 01CE  9B DB E2			        fclex           ; clear exceptions
+ 01D1  9B D9 3E 0051 R		        fstcw  SavedCWord
+					ret  
+ 01DC				ShowFPUStack ENDP
+
+
+				;--------------------------------------------------------------
+ 01DC				WriteFloat PROC USES eax ecx edx
+				;
+				; Writes the floating point value in the top of the FPU stack 
+				; to the console window. Displays in exponential format. The 
+				; value remains on the stack.
+				;--------------------------------------------------------------
+ 0079				.data
+ 0079				temp_01   REAL8 ?	; KRI
+       0000000000000000
+ 0081 0000000A			iten    SDWORD  10
+ 0085				mantissa   REAL8 ?
+       0000000000000000
+ 008D 2B 30 2E			zeroes  BYTE "+0.", 7 DUP('0'), "E+000",0
+       0007 [
+        30
+       ] 45 2B 30 30 30
+       00
+ 009D 4E 61 4E 00		NaNStr  BYTE "NaN", 0                                     ;******
+ 00A1 69 6E 66 69 6E 69		InfinityStr BYTE "infinity", 0                            ;******
+       74 79 00
+ 01E2				.code
+ 01E2  DD 16 0079 R			fst	temp_01	; KRI: save a copy
+
+				    showTop  "W begin: "
+ 01E6  E8 00D1			    call  fpuSet
+ 01E9  D9 E4			    ftst                                                  ;******
+ 01EB  E8 016B			    call  fChkNaN       ; check for NaN                    ******
+ 01EE  75 08			    jnz   W0            ; jump if not NaN                  ******
+ 01F0  66| BA 0000009D R	    mov   edx,offset NaNStr  ; print NaN                   ******
+ 01F6  EB 0D			    jmp   W0a           ; otherwise this is like a zero    ******
+ 01F8				W0:                                                       ;******
+ 01F8  D9 E4			    ftst
+ 01FA  E8 018B			    call  fcompare   	; look at the sign bit
+ 01FD  75 17			    jnz   W1
+				    ; here the thing is all zeroes
+ 01FF  66| BA 0000008D R	    mov   edx,offset zeroes
+ 0205				W0a:
+ 0205  E8 0000 E		    call  writeString
+ 0208				W0b:
+				    ;fstp  mantissa
+ 0208  DD 16 0085 R			fst	mantissa	; KRI 7/20/05: changed fstp to fst
+
+ 020C  E8 00C3			    call  fpuReset
+					showTop  "W end: "
+				    ret
+ 0216				W1:
+ 0216  B0 2B			    mov   al,'+'
+ 0218  7D 04			    jge   W2
+ 021A  B0 2D			    mov   al,'-'
+ 021C  D9 E0			    fchs    	; now have value >= 0
+ 021E				W2:
+ 021E  E8 0000 E		    call  WriteChar    ; the sign
+ 0221  E8 0140			    call  fChkInfinity ; Check for infinity                ******
+ 0224  75 07			    jne   w2a          ; if not continue normally          ******
+ 0226  B0 EC			    mov   al, 0ECh     ; Print "infinity sign"             ******
+ 0228  E8 0000 E		    call  writeChar                                       ;******
+ 022B  EB DB			    jmp   W0b          ; finish like for zeros             ******
+ 022D				W2a:    
+				    ; Suppose the number's value is V.  We first find an exponent E
+				    ;  and mantissa M such that 10^8 <= M < 10^9 and M*10^-8*10^E = V.
+				    ; (E will be in 'exponent', M will be in ST(0))
+ 022D  E8 0197			    call splitup
+				    
+ 0230  DB 1E 0045 R		    fistp  itmp    	; save as an integer & POP
+				    
+ 0234  66| A1 0045 R		    mov  eax,itmp
+ 0238  66| 3B 06 0024 R		    cmp  eax,pwr10+9*4    ; 10^9
+ 023D  7C 10			    jl   W4
+ 023F  66| 33 D2		    xor  edx,edx    	; it's > 10^9
+ 0242  66| 83 C0 05		    add  eax,5      	; for rounding
+ 0246  66| F7 36 0081 R		    div  iten       	; divide by 10
+ 024B  FF 06 0111 R		    inc  exponent
+ 024F				W4:
+				    ; start with the MSD
+ 024F  66| 8B 16 0020 R		    mov  edx,pwr10+8*4
+ 0254  66| 33 D2		    xor  edx,edx
+ 0257  66| F7 36 0020 R		    div  pwr10+8*4
+ 025C  24 0F			    and  al,0Fh
+ 025E  04 30			    add  al,'0'
+ 0260  E8 0000 E		    call WriteChar
+ 0263  B0 2E			    mov  al,'.'
+ 0265  E8 0000 E		    call WriteChar
+ 0268  66| 8B C2		    mov  eax,edx
+ 026B  66| B9 00000007		    mov  ecx,7
+ 0271  E8 020E			    call wrdigits
+
+				    ; that takes care of the decimals after the decimal point
+				    ; now work on the exponent part
+ 0274  B0 45			    mov   al,'E'
+ 0276  E8 0000 E		    call  WriteChar
+				    .IF (exponent < 0)
+ 0280  B0 2D			      mov  al,'-'
+ 0282  F7 1E 0111 R		      neg  exponent
+				    .ELSE
+ 0288  B0 2B			      mov  al,'+'
+				    .ENDIF
+ 028A  E8 0000 E		    call  WriteChar
+
+ 028D  66| 0F B7 06 0111 R	    movzx eax,exponent
+ 0293  66| F7 26 0081 R		    mul   iten
+ 0298  66| B9 00000003		    mov   ecx,3
+ 029E  E8 01E1			    call  wrdigits
+				    
+ 02A1  E8 002E			    call  fpuReset
+					showTop  "W end: "
+					
+ 02A4  DD 06 0079 R			fld	temp_01	; KRI: restore saved value
+				    ret
+ 02AF				WriteFloat  endp
+
+				;**********************************************************************
+				;             PRIVATE PROCEDURES
+				;
+				;**********************************************************************
+
+
+				;------------------------------------------------------
+ 02AF				GetChar  PROC 
+				;
+				; Reads a single character from input,
+				; echoes end of line character to console window.
+				;
+				; Modified by Irvine (7/18/05): removed check for Ctl-C.
+				;------------------------------------------------------
+
+ 02AF  E8 0000 E		    call ReadChar   	; get a character from keyboard
+				    .IF (al == 0dh)	; Enter key?
+ 02B6  E8 0000 E		       call Crlf
+				;    .ELSE
+				;       call WriteChar  	; and echo it back
+				    .ENDIF
+ 02B9  C3			    ret
+ 02BA				GetChar  ENDP
+
+
+ = 0063				MAXEXPONENT=99
+
+				COMMENT #
+				 fpuSet
+				  This sets the RC (10,11) & PC (8,9) bits of the FPU control word
+				  also the exception masks (bits 0..5)
+				  It saves the current control word
+				 fpuReset
+				  Resets FPU to the saved control word
+
+				 RC: xx00 0000 0000b
+				    00 - round to nearest (even)
+				    01 - round down (toward -inf)
+				    10 - round up (toward +inf)
+				    11 - round toward zero (truncate)
+
+				 PC: xx 0000 0000b
+				    00 - single precision (24 bits)
+				    01 - reserved
+				    10 - double precision (53 bits)
+				    11 - double ext. precision (64 bits)
+
+				#
+
+				; truncate, double precision, all exceptions masked out
+ = F0C0				stdMask   = 1111000011000000b
+ = 0F3F				stdRMask  = 0000111100111111b
+ = 0E3F				stdControl= 0000111000111111b
+
+ 00AA				.data
+ 00AA 0000			stmp word  ?
+ 00AC 0000			sw   word  ?
+ 02BA				.code
+
+				;-------------------------------------------------------
+ 02BA				fpuSet PROC uses ax
+				;
+				;-------------------------------------------------------
+ 02BB  9B D9 3E 00AC R		      fstcw sw	; save current control word
+ 02C0  A1 00AC R		      mov   ax,sw
+ 02C3  25 F0C0			      and   ax,stdMask
+ 02C6  0D 0E3F			      or    ax,stdControl
+ 02C9  A3 00AA R		      mov   stmp,ax
+ 02CC  D9 2E 00AA R		      fldcw stmp	; load masked control word
+				      ret
+ 02D2				fpuSet ENDP
+
+				;--------------------------------------------------------
+ 02D2				fpuReset  PROC  uses ax bx
+				;
+				; This resets the control word
+				; bits defined by the stdMask
+				;--------------------------------------------------------
+ 02D4  9B D9 3E 00AA R		      fstcw stmp	; get current control word
+ 02D9  A1 00AA R		      mov   ax,stmp	; save it in AX
+ 02DC  25 F0C0			      and   ax,stdMask	; clear bits 6-7, 11-14
+ 02DF  8B 1E 00AC R		      mov   bx,sw	; get saved control word
+ 02E3  81 E3 0F3F		      and   bx,stdRMask
+ 02E7  0B C3			      or    ax,bx	; set bits 0-5, 8-11
+ 02E9  A3 00AA R		      mov   stmp,ax
+ 02EC  D9 2E 00AA R		      fldcw stmp
+					  ret
+ 02F3				fpuReset  ENDP
+
+
+				;--------------------------------------------------------
+ 02F3				power10  PROC uses ebx ecx
+				;
+				; power10 expects:  EAX (signed exponent)
+				; This returns 10.0^(sign*EAX) in the FPU
+				;--------------------------------------------------------
+ 00AE				.data
+ 00AE				binpwr10   REAL8  1.0E64, 1.0E32, 1.0E16, 1.0E8, 1.0E4, 1.0E2, 1.0E1
+       4D384F03E93FF9F5
+       4693B8B5B5056E17
+       4341C37937E08000
+       4197D78400000000
+       40C3880000000000
+       4059000000000000
+       4024000000000000
+ 00E6 = 0007			TOPPWR= ($-binpwr10)/type binpwr10
+ 02F7				.code
+				      .IF (eax == 0)
+ 02FC  D9 E8			        fld1   ; load a 1
+				        ret
+				      .ENDIF
+
+					   ; get the sign of eax
+ 0303  B3 00				   mov  bl,0
+					   .IF (sdword ptr eax < 0)
+ 030B  66| F7 D8			     neg  eax
+ 030E  FE C3				   	 inc  bl
+				      .ENDIF
+
+				      ; check for too-large exponent
+				      .IF (sdword ptr eax > MAXEXPONENT)
+				        ; complain
+ 0316  66| BA 00000028 R	        mov  edx,OFFSET ErrMsg
+ 031C  E8 0000 E		        call WriteString
+				        ; ...but return 1.0
+ 031F  D9 E8			        fld1
+				        ret
+				      .ENDIF
+
+				      ; now for the computation
+				      ; The general idea is that if eax= 11101b, then the value wanted
+				      ;  is 10^(11101b)= 10^(2^4) * 10^(2^3) * 10^(2^2) * 10^(2^0)
+				      ; So we use a table of these powers, binpwr10.
+				      ; we start with 10^1
+ 0326  D9 E8			      fld1
+ 0328  66| B9 00000007		      mov  ecx,TOPPWR
+ 032E  66| BE 00000030			  mov  esi,(type binpwr10)*(TOPPWR-1)
+ 0334				    P1:
+ 0334  66| A9 00000001		      test  eax,1
+ 033A  74 07			      jz    P2
+ 033C  67& DC 8E 000000AE R	      fmul  binpwr10[esi]
+ 0343				    P2:
+ 0343  66| 83 EE 08			  sub   esi,type binpwr10
+ 0347  66| D1 E8		      shr   eax,1
+ 034A  E0 E8			      loopnz  P1
+				      .IF (bl != 0)
+				        ; take the reciprocal
+ 0350  D9 E8			        fld1
+ 0352  DE F1			        fdivr   ; reverse division
+				      .ENDIF
+				      ret
+ 0359				power10  ENDP
+
+ 00E6				.data
+ 00E6 0000			status  dw 0
+ 00E8 73 74 61 63 6B 20		showMsg byte "stack top= "
+       74 6F 70 3D 20
+ 00F3 00 0D 0A 00		stbyte  byte 0, 0dh, 0ah, 0
+ 0359				.code
+
+				IF DOSHOWTOP
+				ENDIF
+
+
+				;-------------------------------------------------------- ******
+ 0359				fChkNaN PROC  uses ax                                    ;******
+				;                                                         ******
+				; Check the results of the last FTST instruction to see   ******
+				; the Z flag is set if indeed the value was NaN           ******
+				;        5432109876543210                                 ******
+ = 4500				C3C2C0 = 0100010100000000b                               ;******
+ 035A  DF E0			    fnstsw ax         ; mov the status word to AX         ******
+ 035C  25 4500			    and   ax, C3C2C0  ; get the C3, C2, C0 bits from the status word
+ 035F  3D 4500			    cmp   ax, C3C2C0  ; are all the bits 0                ******
+				    ret                                                  ;******
+ 0364				fChkNaN ENDP    				         ;******
+
+				;-------------------------------------------------------- ******
+ 0364				fChkInfinity PROC                                        ;******
+ 00F7				.data                                                    ;******
+ 00F7				temp REAL10 ?                                            ;******
+       00000000000000000000
+ 0364				.code                                                    ;******
+ 0364  DB 3E 00F7 R		    fstp  temp ; store value, fst can't store REAL10     ;******
+ 0368  DB 2E 00F7 R		    fld   temp ; restore the stack                       ;******
+ 036C  A1 00F7 R		    mov   ax, WORD PTR temp
+ 036F  83 3E 00F7 R 00		    cmp   WORD PTR temp, 0000h; is Exponent all 1 bits    ;******
+ 0374  75 11			    jne   CF1                                            ;******
+ 0376  66| 83 3E 00F9 R		    cmp   DWORD PTR (temp+2), 00000000h                  ;******
+       00
+ 037C  75 09			    jne   CF1  ; check first 4 bytes of the mantissa     ;******
+ 037E  66| 81 3E 00FD R		    cmp   DWORD PTR (temp+6), 7FFF8000h                  ;****** 
+       7FFF8000
+				           ; this checks last four bytes of the mantissa ;******
+ 0387				CF1:                                                     ;******
+ 0387  C3			    ret                                                  ;******
+ 0388				fChkInfinity ENDP                                        ;******
+				;--------------------------------------------------------
+ 0388				fcompare PROC uses ax
+				;
+				; Compares two floating-point values.
+				; Transfers ZF & SF registers from the FPU status word
+				;  to the CPU, so we can do branches on them
+				;
+				;--------------------------------------------------------
+ 0389  9B DD 3E 00E6 R		    fstsw  status
+ 038E  8A 26 00E7 R		    mov    ah,byte ptr status+1
+ 0392  8A C4			    mov    al,ah
+ 0394  80 E4 40			    and    ah,040h
+ 0397  24 01			    and    al,1
+ 0399  D0 C8			    ror    al,1
+ 039B  0A E0			    or     ah,al
+ 039D  9E			    sahf
+				    ret
+ 03A0				fcompare ENDP
+
+				;--------------------------------------------------------
+ 03A0				normalize PROC
+				;
+				; shifts ST(0) into range 10^8 <= V < 10^9
+				; and adjusts the exponent in the process
+				;
+				;--------------------------------------------------------
+ 0101				.data
+ 0101				tenp8      REAL8  10.0E8
+       41CDCD6500000000
+ 0109				onep8      REAL8  1.0E8
+       4197D78400000000
+ 0111 0000			exponent   SWORD   0
+
+ 03A0				.code
+ 03A0				N1:
+ 03A0  DC 16 0101 R		    fcom tenp8   ; compare to 10^9
+ 03A4  E8 FFE1			    call fcompare
+ 03A7  7C 0A			    jl   N2
+ 03A9  DC 36 0123 R		    fdiv ten
+ 03AD  FF 06 0111 R		    inc  exponent
+ 03B1  EB ED			    jmp  N1
+
+ 03B3				N2:
+ 03B3  DC 16 0109 R		    fcom onep8   ; compare to 10^8
+ 03B7  E8 FFCE			    call fcompare
+ 03BA  7D 0A			    jge  N3
+ 03BC  DC 0E 0123 R		    fmul ten
+ 03C0  FF 0E 0111 R		    dec  exponent
+ 03C4  EB ED			    jmp  N2
+ 03C6				N3:
+ 03C6  C3			    ret
+ 03C7				normalize ENDP
+
+				;---------------------------------------------------------
+ 03C7				splitup  PROC USES ecx esi edi
+				;
+				; Receives a non-negative number in ST(0).
+				; Suppose the number's value is V.  The goal is to find an exponent E
+				;  and integer mantissa M such that 10^8 <= M < 10^9 and
+				;   V= M*10^-8 * 10^E
+				; (E will be in 'exponent', M will be in ST(0) on return)
+				; This uses the pwr10 table in an attempt to narrow down the
+				; appropriate power using a kind of binary search and reduction
+				;
+				;---------------------------------------------------------
+ 0113				.data
+ 0113				onehalf    REAL8  0.5
+       3FE0000000000000
+ 011B				one       REAL8   1.0
+       3FF0000000000000
+ 0123				ten       REAL8   10.0
+       4024000000000000
+
+ 012B 0040 0020 0010 0008	bpwr10    WORD  64,32,16,8,4,2,1
+       0004 0002 0001
+ 0139				binpwrM10 REAL8  1.0E-64, 1.0E-32, 1.0E-16, 1.0E-8, 1.0E-4, 1.0E-2, 1.0E-1
+       32A50FFD44F4A73D
+       3949F623D5A8A733
+       3C9CD2B297D889BC
+       3E45798EE2308C3A
+       3F1A36E2EB1C432D
+       3F847AE147AE147B
+       3FB999999999999A
+
+ 03CD				.code
+ 03CD  C7 06 0111 R 0000	    mov  exponent,0 
+
+				    ; see if == 0.0
+ 03D3  D9 E4			    ftst
+ 03D5  E8 FFB0			    call fcompare
+ 03D8  75 07			    jne  S1
+				    ret
+
+ 03E1				S1:
+				    ; start by seeing if it's greater than 10
+ 03E1  DC 16 0123 R		    fcom  ten
+ 03E5  E8 FFA0			    call  fcompare
+ 03E8  7D 0B			    jge   S2    ; >= 10
+				    ; see if it's < 10
+ 03EA  DC 16 011B R		    fcom one
+ 03EE  E8 FF97			    call fcompare
+ 03F1  7D 78			    jge  S4   ; it's >= 10
+ 03F3  EB 3C			    jmp  S3   ; it's < 10
+
+ 03F5				S2: ; here, it's > 10
+				    ; so we'll reduce it using the binpwr10 table
+ 03F5  66| B9 00000007		    mov  ecx,TOPPWR
+ 03FB  66| BE 00000000		    mov  esi,0    	; index to binpwr10
+ 0401  66| BF 00000000		    mov  edi,0    	; index to bpwr10
+ 0407				S2a:
+ 0407  67& DC 96 000000AE R	    fcom binpwr10[esi]
+ 040E  E8 FF77			    call fcompare
+ 0411  7C 12			    jl   S2c
+ 0413  67& DC B6 000000AE R	    fdiv binpwr10[esi]
+ 041A  67& 8B 87 0000012B R			mov  ax,bpwr10[edi]
+ 0421  01 06 0111 R		    add  exponent,ax
+ 0425				S2c:
+ 0425  66| 83 C6 08		    add  esi,type binpwr10
+ 0429  66| 83 C7 02		    add  edi,type bpwr10
+ 042D  E2 D8			    loop S2a
+ 042F  EB 3A			    jmp  S4
+
+ 0431				S3: ; here, it's < 1.0
+ 0431  66| B9 00000007		    mov  ecx,TOPPWR
+ 0437  66| BE 00000000		    mov  esi,0    	; index to binpwrM10
+ 043D  66| BF 00000000		    mov  edi,0    	; index to mpwr10
+ 0443				S3a:
+ 0443  67& DC 96 00000139 R	    fcom binpwrM10[esi]
+ 044A  E8 FF3B			    call fcompare
+ 044D  7D 12			    jge  S3c
+ 044F  67& DC B6 00000139 R	    fdiv binpwrM10[esi]
+ 0456  67& 8B 87 0000012B R		mov  ax,bpwr10[edi]
+ 045D  29 06 0111 R		    sub  exponent,ax
+ 0461				S3c:
+ 0461  66| 83 C6 08		    add  esi,type binpwr10
+ 0465  66| 83 C7 02		    add  edi,type bpwr10
+ 0469  E2 D8			    loop S3a
+
+ 046B				S4:
+ 046B  DC 0E 0109 R		    fmul onep8	  ; multiply by 10^8
+				    ; adjust to range 10^8 <= V < 10^9
+ 046F  E8 FF2E			    call normalize
+
+				; Round the mantissa to 8 decimal places
+ 0472  DC 06 0113 R		    fadd onehalf     ; add one half
+ 0476  D9 FC			    frndint          ; should truncate fractional part
+
+				    ; readjust to 10^8 <= V < 10^9
+ 0478  E8 FF25			    call normalize
+				    
+				    ret
+ 0482				splitup  ENDP
+
+
+				;---------------------------------------------------------
+ 0482				wrdigits PROC PRIVATE
+				;
+				; (Helper procedure) Writes 'ecx' digits of register eax
+				;  as decimal digits, with leading zeros.
+				; 
+				;---------------------------------------------------------
+ 0482				WR1:
+ 0482  67& 66| 8B 14 8D		    mov  edx,pwr10[ecx*4]
+       00000000 R
+ 048B  66| 33 D2			xor  edx,edx
+ 048E  67& 66| F7 34 8D		    div  pwr10[ecx*4]
+       00000000 R
+ 0497  24 0F			    and  al,0Fh
+ 0499  04 30			    add  al,'0'
+ 049B  E8 0000 E		    call WriteChar
+ 049E  66| 8B C2		    mov  eax,edx
+ 04A1  E2 DF			    loop WR1
+				    
+ 04A3  C3			    ret
+ 04A4				wrdigits ENDP
+
+				    END
+
+Microsoft (R) Macro Assembler Version 8.00.50727.42	    05/30/06 17:46:19
+floatio.asm						     Symbols 2 - 1
+
+
+
+
+Macros:
+
+                N a m e                 Type
+
+IsDefined  . . . . . . . . . . .	Func
+mClrscr  . . . . . . . . . . . .	Proc
+mDumpMem . . . . . . . . . . . .	Proc
+mDump  . . . . . . . . . . . . .	Proc
+mGotoxy  . . . . . . . . . . . .	Proc
+mNewLine . . . . . . . . . . . .	Proc
+mReadStr . . . . . . . . . . . .	Proc
+mShowRegister  . . . . . . . . .	Proc
+mShow  . . . . . . . . . . . . .	Proc
+mWriteLn . . . . . . . . . . . .	Proc
+mWriteSpace  . . . . . . . . . .	Proc
+mWriteStr  . . . . . . . . . . .	Proc
+mWrite . . . . . . . . . . . . .	Proc
+showTop  . . . . . . . . . . . .	Proc
+
+
+Structures and Unions:
+
+                N a m e                  Size
+                                         Offset      Type
+
+CursorPosStruc . . . . . . . . .	 0002
+  Ycoord . . . . . . . . . . . .	 0000	     Byte
+  Xcoord . . . . . . . . . . . .	 0001	     Byte
+ExtGetDskFreSpcStruc . . . . . .	 002C
+  StructSize . . . . . . . . . .	 0000	     Word
+  Level  . . . . . . . . . . . .	 0002	     Word
+  SectorsPerCluster  . . . . . .	 0004	     DWord
+  BytesPerSector . . . . . . . .	 0008	     DWord
+  AvailableClusters  . . . . . .	 000C	     DWord
+  TotalClusters  . . . . . . . .	 0010	     DWord
+  AvailablePhysSectors . . . . .	 0014	     DWord
+  TotalPhysSectors . . . . . . .	 0018	     DWord
+  AvailableAllocationUnits . . .	 001C	     DWord
+  TotalAllocationUnits . . . . .	 0020	     DWord
+  Rsvd . . . . . . . . . . . . .	 0024	     DWord
+FPU_ENVIRON  . . . . . . . . . .	 001C
+  controlWord  . . . . . . . . .	 0000	     Word
+  statusWord . . . . . . . . . .	 0004	     Word
+  tagWord  . . . . . . . . . . .	 0008	     Word
+  instrPtrLow  . . . . . . . . .	 000C	     Word
+  opcodeAndInstrPtrHi  . . . . .	 0010	     DWord
+  operandPtrLow  . . . . . . . .	 0014	     Word
+  operandPtrHi . . . . . . . . .	 0018	     DWord
+TimeRecord . . . . . . . . . . .	 0004
+  hours  . . . . . . . . . . . .	 0000	     Byte
+  minutes  . . . . . . . . . . .	 0001	     Byte
+  seconds  . . . . . . . . . . .	 0002	     Byte
+  hhss . . . . . . . . . . . . .	 0003	     Byte
+VideoInfoStruc . . . . . . . . .	 0041
+  supportedInfoPtr . . . . . . .	 0000	     DWord
+  videoMode  . . . . . . . . . .	 0004	     Byte
+  numCharColumns . . . . . . . .	 0005	     Word
+  videoBufferLen . . . . . . . .	 0007	     Word
+  videoBufferStartPtr  . . . . .	 0009	     Word
+  cursors  . . . . . . . . . . .	 000B	     Word
+  cursorStartLine  . . . . . . .	 001B	     Byte
+  cursorEndLine  . . . . . . . .	 001C	     Byte
+  activeDisplayPage  . . . . . .	 001D	     Byte
+  adapterBasePortAddr  . . . . .	 001E	     Word
+  currentRegister3B8or3D8  . . .	 0020	     Byte
+  currentRegister3B9or3D9  . . .	 0021	     Byte
+  numCharRows  . . . . . . . . .	 0022	     Byte
+  characterScanHeight  . . . . .	 0023	     Word
+  activeDisplayCode  . . . . . .	 0025	     Byte
+  inactiveDisplayCode  . . . . .	 0026	     Byte
+  numberOfColors . . . . . . . .	 0027	     Word
+  numberOfVideoPages . . . . . .	 0029	     Byte
+  numberOfScanLines  . . . . . .	 002A	     Word
+  primaryCharBlock . . . . . . .	 002C	     Byte
+  secondaryCharBlock . . . . . .	 002D	     Byte
+  miscStateInfo  . . . . . . . .	 002E	     Byte
+  videoMemAvail  . . . . . . . .	 0032	     Byte
+  savePointerStateInfo . . . . .	 0033	     Byte
+
+
+Segments and Groups:
+
+                N a m e                 Size     Length   Align   Combine Class
+
+DGROUP . . . . . . . . . . . . .	GROUP
+_DATA  . . . . . . . . . . . . .	16 Bit	 0171	  Word	  Public  'DATA'	
+STACK  . . . . . . . . . . . . .	16 Bit	 0200	  Para	  Stack	  'STACK'	 
+_TEXT  . . . . . . . . . . . . .	16 Bit	 04A4	  Word	  Public  'CODE'	
+
+
+Procedures, parameters, and locals:
+
+                N a m e                 Type     Value    Attr
+
+Clrscr . . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Crlf . . . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Delay  . . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+DumpMem  . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+DumpRegs . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+GetChar  . . . . . . . . . . . .	P Near	 02AF	  _TEXT	Length= 000B Public STDCALL
+GetCommandtail . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+GetMaxXY . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+GetMseconds  . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Gotoxy . . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+IsDigit  . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Random32 . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+RandomRange  . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Randomize  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ReadChar . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ReadFloat  . . . . . . . . . . .	P Near	 0000	  _TEXT	Length= 0170 Public STDCALL
+  expsign  . . . . . . . . . . .	DWord	 bp - 0004
+  sign . . . . . . . . . . . . .	Byte	 bp - 0005
+  R1 . . . . . . . . . . . . . .	L Near	 001F	  _TEXT	
+  R2 . . . . . . . . . . . . . .	L Near	 0029	  _TEXT	
+ReadHex  . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ReadInt  . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ReadString . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+SetTextColor . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ShowFPUStack . . . . . . . . . .	P Near	 0170	  _TEXT	Length= 006C Public STDCALL
+  temp . . . . . . . . . . . . .	QWord	 bp - 0008
+  LDisplay . . . . . . . . . . .	L Near	 01A1	  _TEXT	
+  LReturn  . . . . . . . . . . .	L Near	 01CE	  _TEXT	
+Str_compare  . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Str_copy . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Str_length . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Str_trim . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Str_ucase  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WaitMsg  . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteBinB  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteBin . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteChar  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteDec . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteFloat . . . . . . . . . . .	P Near	 01DC	  _TEXT	Length= 00D3 Public STDCALL
+  W0 . . . . . . . . . . . . . .	L Near	 01F8	  _TEXT	
+  W0a  . . . . . . . . . . . . .	L Near	 0205	  _TEXT	
+  W0b  . . . . . . . . . . . . .	L Near	 0208	  _TEXT	
+  W1 . . . . . . . . . . . . . .	L Near	 0216	  _TEXT	
+  W2 . . . . . . . . . . . . . .	L Near	 021E	  _TEXT	
+  W2a  . . . . . . . . . . . . .	L Near	 022D	  _TEXT	
+  W4 . . . . . . . . . . . . . .	L Near	 024F	  _TEXT	
+WriteHexB  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteHex . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteInt . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteString  . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+fChkInfinity . . . . . . . . . .	P Near	 0364	  _TEXT	Length= 0024 Public STDCALL
+  CF1  . . . . . . . . . . . . .	L Near	 0387	  _TEXT	
+fChkNaN  . . . . . . . . . . . .	P Near	 0359	  _TEXT	Length= 000B Public STDCALL
+fcompare . . . . . . . . . . . .	P Near	 0388	  _TEXT	Length= 0018 Public STDCALL
+fpuReset . . . . . . . . . . . .	P Near	 02D2	  _TEXT	Length= 0021 Public STDCALL
+fpuSet . . . . . . . . . . . . .	P Near	 02BA	  _TEXT	Length= 0018 Public STDCALL
+normalize  . . . . . . . . . . .	P Near	 03A0	  _TEXT	Length= 0027 Public STDCALL
+  N1 . . . . . . . . . . . . . .	L Near	 03A0	  _TEXT	
+  N2 . . . . . . . . . . . . . .	L Near	 03B3	  _TEXT	
+  N3 . . . . . . . . . . . . . .	L Near	 03C6	  _TEXT	
+power10  . . . . . . . . . . . .	P Near	 02F3	  _TEXT	Length= 0066 Public STDCALL
+  P1 . . . . . . . . . . . . . .	L Near	 0334	  _TEXT	
+  P2 . . . . . . . . . . . . . .	L Near	 0343	  _TEXT	
+splitup  . . . . . . . . . . . .	P Near	 03C7	  _TEXT	Length= 00BB Public STDCALL
+  S1 . . . . . . . . . . . . . .	L Near	 03E1	  _TEXT	
+  S2 . . . . . . . . . . . . . .	L Near	 03F5	  _TEXT	
+  S2a  . . . . . . . . . . . . .	L Near	 0407	  _TEXT	
+  S2c  . . . . . . . . . . . . .	L Near	 0425	  _TEXT	
+  S3 . . . . . . . . . . . . . .	L Near	 0431	  _TEXT	
+  S3a  . . . . . . . . . . . . .	L Near	 0443	  _TEXT	
+  S3c  . . . . . . . . . . . . .	L Near	 0461	  _TEXT	
+  S4 . . . . . . . . . . . . . .	L Near	 046B	  _TEXT	
+wrdigits . . . . . . . . . . . .	P Near	 0482	  _TEXT	Length= 0022 Private STDCALL
+  WR1  . . . . . . . . . . . . .	L Near	 0482	  _TEXT	
+
+
+Symbols:
+
+                N a m e                 Type     Value    Attr
+
+??0003 . . . . . . . . . . . . .	Byte	 0055	  _DATA	
+??0004 . . . . . . . . . . . . .	Byte	 0071	  _DATA	
+??0005 . . . . . . . . . . . . .	Byte	 0075	  _DATA	
+@CodeSize  . . . . . . . . . . .	Number	 0000h	 
+@DataSize  . . . . . . . . . . .	Number	 0000h	 
+@Interface . . . . . . . . . . .	Number	 0003h	 
+@Model . . . . . . . . . . . . .	Number	 0002h	 
+@cmdline . . . . . . . . . . . .	Text   	 OFFSET __98765765cmdline
+@code  . . . . . . . . . . . . .	Text   	 _TEXT
+@data  . . . . . . . . . . . . .	Text   	 DGROUP
+@fardata?  . . . . . . . . . . .	Text   	 FAR_BSS
+@fardata . . . . . . . . . . . .	Text   	 FAR_DATA
+@stack . . . . . . . . . . . . .	Text   	 DGROUP
+ACTION_CREATED_OPENED  . . . . .	Number	 0002h	 
+ACTION_OPENED  . . . . . . . . .	Number	 0001h	 
+ACTION_REPLACED_OPENED . . . . .	Number	 0003h	 
+C3C2C0 . . . . . . . . . . . . .	Number	 4500h	 
+ControlWordMask  . . . . . . . .	Number	 003Fh	 
+DOSHOWTOP  . . . . . . . . . . .	Number	 0000h	 
+ErrMsg . . . . . . . . . . . . .	Byte	 0028	  _DATA	
+FILE_CREATE  . . . . . . . . . .	Number	 0010h	 
+FILE_OPEN  . . . . . . . . . . .	Number	 0001h	 
+FILE_TRUNCATE  . . . . . . . . .	Number	 0002h	 
+InfinityStr  . . . . . . . . . .	Byte	 00A1	  _DATA	
+LIGHT_BLUE . . . . . . . . . . .	Number	 0009h	 
+LIGHT_CYAN . . . . . . . . . . .	Number	 000Bh	 
+LIGHT_GRAY . . . . . . . . . . .	Number	 0007h	 
+LIGHT_GREEN  . . . . . . . . . .	Number	 000Ah	 
+LIGHT_MAGENTA  . . . . . . . . .	Number	 000Dh	 
+LIGHT_RED  . . . . . . . . . . .	Number	 000Ch	 
+MAXEXPONENT  . . . . . . . . . .	Number	 0063h	 
+NaNStr . . . . . . . . . . . . .	Byte	 009D	  _DATA	
+OPEN_ACCESS_READONLY . . . . . .	Number	 0000h	 
+OPEN_ACCESS_READWRITE  . . . . .	Number	 0002h	 
+OPEN_ACCESS_RO_NOMODLASTACCESS .	Number	 0004h	 
+OPEN_ACCESS_WRITEONLY  . . . . .	Number	 0001h	 
+OPEN_FLAGS_ALIAS_HINT  . . . . .	Number	 0400h	 
+OPEN_FLAGS_COMMIT  . . . . . . .	Number	 4000h	 
+OPEN_FLAGS_NOCRITERR . . . . . .	Number	 2000h	 
+OPEN_FLAGS_NOINHERIT . . . . . .	Number	 0080h	 
+OPEN_FLAGS_NO_BUFFERING  . . . .	Number	 0100h	 
+OPEN_FLAGS_NO_COMPRESS . . . . .	Number	 0200h	 
+OPEN_SHARE_COMPATIBLE  . . . . .	Number	 0000h	 
+OPEN_SHARE_DENYNONE  . . . . . .	Number	 0040h	 
+OPEN_SHARE_DENYREADWRITE . . . .	Number	 0010h	 
+OPEN_SHARE_DENYREAD  . . . . . .	Number	 0030h	 
+OPEN_SHARE_DENYWRITE . . . . . .	Number	 0020h	 
+SavedCWord . . . . . . . . . . .	Word	 0051	  _DATA	
+ShowRegister . . . . . . . . . .	Text   	 mShowRegister
+TOPPWR . . . . . . . . . . . . .	Number	 0007h	 
+UsedCWord  . . . . . . . . . . .	Word	 0053	  _DATA	
+_A_ARCH  . . . . . . . . . . . .	Number	 0020h	 
+_A_HIDDEN  . . . . . . . . . . .	Number	 0002h	 
+_A_NORMAL  . . . . . . . . . . .	Number	 0000h	 
+_A_RDONLY  . . . . . . . . . . .	Number	 0001h	 
+_A_SYSTEM  . . . . . . . . . . .	Number	 0004h	 
+_A_VOLID . . . . . . . . . . . .	Number	 0008h	 
+binpwr10 . . . . . . . . . . . .	QWord	 00AE	  _DATA	
+binpwrM10  . . . . . . . . . . .	QWord	 0139	  _DATA	
+black  . . . . . . . . . . . . .	Number	 0000h	 
+blue . . . . . . . . . . . . . .	Number	 0001h	 
+bpwr10 . . . . . . . . . . . . .	Word	 012B	  _DATA	
+brown  . . . . . . . . . . . . .	Number	 0006h	 
+cyan . . . . . . . . . . . . . .	Number	 0003h	 
+exit . . . . . . . . . . . . . .	Text   	 .EXIT
+expint . . . . . . . . . . . . .	DWord	 0041	  _DATA	
+exponent . . . . . . . . . . . .	Word	 0111	  _DATA	
+gray . . . . . . . . . . . . . .	Number	 0008h	 
+green  . . . . . . . . . . . . .	Number	 0002h	 
+iten . . . . . . . . . . . . . .	DWord	 0081	  _DATA	
+itmp . . . . . . . . . . . . . .	DWord	 0045	  _DATA	
+lightBlue  . . . . . . . . . . .	Number	 0009h	 
+lightCyan  . . . . . . . . . . .	Number	 000Bh	 
+lightGray  . . . . . . . . . . .	Number	 0007h	 
+lightGreen . . . . . . . . . . .	Number	 000Ah	 
+lightMagenta . . . . . . . . . .	Number	 000Dh	 
+lightRed . . . . . . . . . . . .	Number	 000Ch	 
+magenta  . . . . . . . . . . . .	Number	 0005h	 
+mantissa . . . . . . . . . . . .	QWord	 0085	  _DATA	
+onehalf  . . . . . . . . . . . .	QWord	 0113	  _DATA	
+onep8  . . . . . . . . . . . . .	QWord	 0109	  _DATA	
+one  . . . . . . . . . . . . . .	QWord	 011B	  _DATA	
+power  . . . . . . . . . . . . .	QWord	 0049	  _DATA	
+pwr10  . . . . . . . . . . . . .	DWord	 0000	  _DATA	
+red  . . . . . . . . . . . . . .	Number	 0004h	 
+showMsg  . . . . . . . . . . . .	Byte	 00E8	  _DATA	
+status . . . . . . . . . . . . .	Word	 00E6	  _DATA	
+stbyte . . . . . . . . . . . . .	Byte	 00F3	  _DATA	
+stdControl . . . . . . . . . . .	Number	 0E3Fh	 
+stdMask  . . . . . . . . . . . .	Number	 F0C0h	 
+stdRMask . . . . . . . . . . . .	Number	 0F3Fh	 
+stmp . . . . . . . . . . . . . .	Word	 00AA	  _DATA	
+sw . . . . . . . . . . . . . . .	Word	 00AC	  _DATA	
+temp_01  . . . . . . . . . . . .	QWord	 0079	  _DATA	
+temp . . . . . . . . . . . . . .	TWord	 00F7	  _DATA	
+tenp8  . . . . . . . . . . . . .	QWord	 0101	  _DATA	
+ten  . . . . . . . . . . . . . .	QWord	 0123	  _DATA	
+white  . . . . . . . . . . . . .	Number	 000Fh	 
+yellow . . . . . . . . . . . . .	Number	 000Eh	 
+zeroes . . . . . . . . . . . . .	Byte	 008D	  _DATA	
+
+	   0 Warnings
+	   0 Errors

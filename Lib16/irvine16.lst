@@ -1,0 +1,2090 @@
+Microsoft (R) Macro Assembler Version 8.00.50727.42	    05/30/06 17:46:19
+&Link Library Functions		(Irvine16.asm		     Page 1 - 1
+
+
+				TITLE  Link Library Functions		(Irvine16.asm)
+
+				Comment @
+
+				**** TODO *****
+				Add CloseFile, CreateOutputFile, OpenInputFile, ReadFromFile,
+				WriteToFile, StrLength, ParseDecimal32, and ParseInteger32 to 
+				match the contents of the Irvine32 library.
+						
+
+				This library was created exlusively for use with the book,
+				"Assembly Language for Intel-Based Computers, 4th Edition & 5th Edition",
+				by Kip R. Irvine, 2002 & 2006.
+
+				Copyright 2002-2006, Prentice-Hall Incorporated. No part of this file may be
+				reproduced, in any form or by any other means, without permission in writing
+				from the publisher.
+
+				Updates to this file will be posted on the book's site:
+				www.asmirvine.com
+
+				Recent update history:
+					06/28/2005: Added SetTextColor
+					7/8/05: Moved mShowRegister to macros.inc
+
+				Acknowledgements:
+				------------------------------
+				Most of the code in this library was written by Kip Irvine.
+				Special thanks to Gerald Cahill for his many insights, suggestions, and bug fixes.
+				Also to Courtney Amor, a student at UCLA, and Ben Schwartz.
+
+				Alphabetical Listing of Procedures
+				----------------------------------
+				(Unless otherwise marked, all procedures are documented in Chapter 5.)
+
+				Clrscr
+				Crlf
+				Delay
+				DumpMem
+				DumpRegs
+				GetCommandTail
+				GetMaxXY
+				GetMseconds
+				Gotoxy
+				IsDigit
+				Random32
+				Randomize
+				RandomRange
+				ReadChar
+				ReadHex
+				ReadInt
+				ReadString
+				SetTextColor
+				Str_compare	Chapter 9
+				Str_copy		Chapter 9
+				Str_length	Chapter 9
+				Str_trim		Chapter 9
+				Str_ucase		Chapter 9
+				WaitMsg
+				WriteBin
+				WriteChar
+				WriteDec
+				WriteHex
+				WriteInt
+				WriteString
+				=================================@
+
+				INCLUDE Irvine16.inc
+			      C ; Irvine16.inc - Include file for programs using
+			      C ; the Irvine16.lib (Real-address mode library).
+			      C 
+			      C ; Last update: 7/29/05
+			      C 
+			      C .NOLIST
+			      C .LIST
+			      C 
+				INCLUDE Macros.inc
+			      C .NOLIST
+			      C .LIST
+			      C 
+
+				; Write <count< spaces to standard output
+
+				WriteSpace MACRO count
+				Local spaces
+				.data
+				spaces BYTE count dup(' '),0
+				.code
+					mov  dx,OFFSET spaces
+					call WriteString
+				ENDM
+
+				; Send a newline sequence to standard output
+
+				NewLine MACRO
+				Local temp
+				.data
+				temp BYTE 13,10,0
+				.code
+					push dx
+					mov  dx,OFFSET temp
+					call WriteString
+					pop  dx
+				ENDM
+
+				;-------------------------------------
+				ShowFlag MACRO flagName,shiftCount
+					    LOCAL flagStr, flagVal, L1
+				;
+				; Display a single flag value
+				;-------------------------------------
+
+				.data
+				flagStr BYTE "  &flagName="
+				flagVal BYTE ?,0
+
+				.code
+					push ax
+					push dx
+
+					mov  ax,flags	; retrieve the flags
+					mov  flagVal,'1'
+					shr  ax,shiftCount	; shift into carry flag
+					jc   L1
+					mov  flagVal,'0'
+				L1:
+					mov  dx,OFFSET flagStr	; display flag name and value
+					call WriteString
+
+					pop  dx
+					pop  ax
+				ENDM
+
+				;--------- END OF MACRO DEFINITIONS ---------------------------
+
+
+				;********************* SHARED DATA AREA **********************
+ 0000				.data?
+ 0000  0200 [			buffer BYTE 512 dup(?)
+        00
+       ]
+
+				;*************************************************************
+
+ 0000				.code
+				;------------------------------------------------------
+ 0000				Clrscr PROC
+				;
+				; Clears the screen (video page 0) and locates the cursor
+				; at row 0, column 0.
+				; Receives: nothing
+				; Returns:  nothing
+				; Currently affects only 25 rows and 80 columns
+				;-------------------------------------------------------
+ 0000  60				pusha
+ 0001  B8 0600				mov     ax,0600h    	; scroll window up
+ 0004  B9 0000				mov     cx,0        	; upper left corner (0,0)
+ 0007  BA 184F				mov     dx,184Fh    	; lower right corner (24,79)
+ 000A  B7 07				mov     bh,7        	; normal attribute
+ 000C  CD 10				int     10h         	; call BIOS
+ 000E  B4 02				mov     ah,2        	; locate cursor at 0,0
+ 0010  B7 00				mov     bh,0        	; video page 0
+ 0012  BA 0000				mov     dx,0	; row 0, column 0
+ 0015  CD 10				int     10h
+ 0017  61				popa
+ 0018  C3				ret
+ 0019				Clrscr ENDP
+
+
+				;-----------------------------------------------------
+ 0019				Crlf PROC
+				;
+				; Writes a carriage return / linefeed
+				; sequence (0Dh,0Ah) to standard output.
+				;-----------------------------------------------------
+					NewLine	; invoke a macro
+ 0000			     1	.data
+ 0000 0D 0A 00		     1	??0000 BYTE 13,10,0
+ 0019			     1	.code
+ 0019  52		     1		push dx
+ 001A  BA 0000 R	     1		mov  dx,OFFSET ??0000
+ 001D  E8 07DE		     1		call WriteString
+ 0020  5A		     1		pop  dx
+ 0021  C3				ret
+ 0022				Crlf ENDP
+
+				;-----------------------------------------------------------
+ 0022				Delay PROC
+				;
+				; Create an n-millisecond delay.
+				; Receives: EAX = milliseconds
+				; Returns: nothing
+				; Remarks: May only used under Windows 95, 98, or ME. Does
+				; not work under Windows NT, 2000, or XP, because it
+				; directly accesses hardware ports.
+				; Source: "The 80x86 IBM PC & Compatible Computers" by
+				; Mazidi and Mazidi, page 343. Prentice-Hall, 1995.
+				;-----------------------------------------------------------
+
+ = 000F4240			MsToMicro = 1000000	; convert ms to microseconds
+ = 3AED				ClockFrequency = 15085	; microseconds per tick
+ 0022				.code
+ 0022  66| 60				pushad
+				; Convert milliseconds to microseconds.
+ 0024  66| BB 000F4240			mov  ebx,MsToMicro
+ 002A  66| F7 E3			mul  ebx
+
+				; Divide by clock frequency of 15.085 microseconds,
+				; producing the counter for port 61h.
+ 002D  66| BB 00003AED			mov  ebx,ClockFrequency
+ 0033  66| F7 F3			div  ebx	; eax = counter
+ 0036  66| 8B C8			mov  ecx,eax
+
+				; Begin checking port 61h, watching bit 4 toggle
+				; between 1 and 0 every 15.085 microseconds.
+ 0039				L1:
+ 0039  E4 61				in  al,61h	; read port 61h
+ 003B  24 10				and al,10h	; clear all bits except bit 4
+ 003D  3A C4				cmp al,ah	; has it changed?
+ 003F  74 F8				je  L1	; no: try again
+ 0041  8A E0				mov ah,al	; yes: save status
+ 0043  66| 49				dec ecx
+ 0045  66| 83 F9 00			cmp ecx,0	; loop finished yet?
+ 0049  77 EE				ja  L1
+
+ 004B				quit:
+ 004B  66| 61				popad
+ 004D  C3				ret
+ 004E				Delay ENDP
+
+
+				;---------------------------------------------------
+ 004E				DumpMem PROC
+					   LOCAL unitsize:word, byteCount:word
+				;
+				; Writes a range of memory to standard output
+				; in hexadecimal.
+				; Receives: SI = starting OFFSET, CX = number of units,
+				;           BX = unit size (1=byte, 2=word, or 4=doubleword)
+				; Returns:  nothing
+				;---------------------------------------------------
+ 0003				.data
+ 0003 20 00			oneSpace   BYTE ' ',0
+ 0005 0D 0A 44 75 6D 70		dumpPrompt BYTE 13,10,"Dump of offset ",0
+       20 6F 66 20 6F 66
+       66 73 65 74 20 00
+ 0054				.code
+ 0054  66| 60				pushad
+
+ 0056  BA 0005 R			mov  dx,OFFSET dumpPrompt
+ 0059  E8 07A2				call WriteString
+ 005C  66| 0F B7 C6			movzx eax,si
+ 0060  E8 069B				call  WriteHex
+					NewLine
+ 0017			     1	.data
+ 0017 0D 0A 00		     1	??0001 BYTE 13,10,0
+ 0063			     1	.code
+ 0063  52		     1		push dx
+ 0064  BA 0017 R	     1		mov  dx,OFFSET ??0001
+ 0067  E8 0794		     1		call WriteString
+ 006A  5A		     1		pop  dx
+
+ 006B  C7 46 FC 0000			mov  byteCount,0
+ 0070  89 5E FE				mov  unitsize,bx
+ 0073  83 FB 04				cmp  bx,4	; select output size
+ 0076  74 07				je   L1
+ 0078  83 FB 02				cmp  bx,2
+ 007B  74 14				je   L2
+ 007D  EB 2D				jmp  L3
+
+ 007F				L1:	; doubleword output
+ 007F  66| 8B 04			mov  eax,[si]
+ 0082  E8 0679				call WriteHex
+					WriteSpace 2
+ 001A			     1	.data
+ 001A  0002 [		     1	??0002 BYTE 2 dup(' '),0
+        20
+       ] 00
+ 0085			     1	.code
+ 0085  BA 001A R	     1		mov  dx,OFFSET ??0002
+ 0088  E8 0773		     1		call WriteString
+ 008B  03 F3				add  si,bx
+ 008D  E2 F0				Loop L1
+ 008F  EB 46				jmp  L4
+
+ 0091				L2:	; word output
+ 0091  8B 04				mov  ax,[si]	; get a word from memory
+ 0093  C1 C8 08				ror  ax,8	; display high byte
+ 0096  E8 0126				call HexByte
+ 0099  C1 C8 08				ror  ax,8	; display low byte
+ 009C  E8 0120				call HexByte
+					WriteSpace 1	; display 1 space
+ 001D			     1	.data
+ 001D  0001 [		     1	??0003 BYTE 1 dup(' '),0
+        20
+       ] 00
+ 009F			     1	.code
+ 009F  BA 001D R	     1		mov  dx,OFFSET ??0003
+ 00A2  E8 0759		     1		call WriteString
+ 00A5  03 76 FE				add  si,unitsize	; point to next word
+ 00A8  E2 E7				Loop L2
+ 00AA  EB 2B				jmp  L4
+
+				; Byte output: 16 bytes per line
+
+ 00AC				L3:
+ 00AC  8A 04				mov  al,[si]
+ 00AE  E8 010E				call HexByte
+ 00B1  FF 46 FC				inc  byteCount
+					WriteSpace 1
+ 001F			     1	.data
+ 001F  0001 [		     1	??0004 BYTE 1 dup(' '),0
+        20
+       ] 00
+ 00B4			     1	.code
+ 00B4  BA 001F R	     1		mov  dx,OFFSET ??0004
+ 00B7  E8 0744		     1		call WriteString
+ 00BA  46				inc  si
+
+					; if( byteCount mod 16 == 0 ) call Crlf
+
+ 00BB  BA 0000				mov  dx,0
+ 00BE  8B 46 FC				mov  ax,byteCount
+ 00C1  BB 0010				mov  bx,16
+ 00C4  F7 F3				div  bx
+ 00C6  83 FA 00				cmp  dx,0
+ 00C9  75 08				jne  L3B
+					NewLine
+ 0021			     1	.data
+ 0021 0D 0A 00		     1	??0005 BYTE 13,10,0
+ 00CB			     1	.code
+ 00CB  52		     1		push dx
+ 00CC  BA 0021 R	     1		mov  dx,OFFSET ??0005
+ 00CF  E8 072C		     1		call WriteString
+ 00D2  5A		     1		pop  dx
+ 00D3				L3B:
+ 00D3  E2 D7				Loop L3
+ 00D5  EB 00				jmp  L4
+
+ 00D7				L4:
+					NewLine
+ 0024			     1	.data
+ 0024 0D 0A 00		     1	??0006 BYTE 13,10,0
+ 00D7			     1	.code
+ 00D7  52		     1		push dx
+ 00D8  BA 0024 R	     1		mov  dx,OFFSET ??0006
+ 00DB  E8 0720		     1		call WriteString
+ 00DE  5A		     1		pop  dx
+ 00DF  66| 61				popad
+					ret
+ 00E5				DumpMem ENDP
+
+
+				;--------------------------------------------------
+ 00E5				GetCommandTail PROC
+				;
+				; Gets a copy of the DOS command tail at PSP:80h.
+				; Receives: DX contains the offset of the buffer
+				; that receives a copy of the command tail.
+				; Returns: CF=1 if the buffer is empty; otherwise,
+				; CF=0.
+				; Last update: 7/8/05
+				;--------------------------------------------------
+ = 0020				SPACE = 20h
+ 00E5  06			    push es
+ 00E6  60				pusha		; save general registers
+
+ 00E7  B4 62				mov	ah,62h	; get PSP segment address
+ 00E9  CD 21				int	21h	; returned in BX
+ 00EB  8E C3				mov	es,bx	; copied to ES
+
+ 00ED  8B F2				mov	si,dx	; point to buffer
+ 00EF  BF 0081				mov	di,81h	; PSP offset of command tail
+ 00F2  B9 0000				mov	cx,0	; byte count
+ 00F5  26: 8A 4D FF			mov	cl,es:[di-1]	; get length byte
+ 00F9  83 F9 00				cmp	cx,0	; is the tail empty?
+ 00FC  74 15				je	L2	; yes: exit
+ 00FE  FC				cld		; scan in forward direction
+ 00FF  B0 20				mov	al,SPACE	; space character
+ 0101  F3/ AE				repz	scasb	; scan for non space
+ 0103  74 0E				jz	L2	; all spaces found
+ 0105  4F				dec	di	; non space found
+ 0106  41				inc	cx
+
+ 0107  26: 8A 05		L1: mov	al,es:[di]	; copy tail to buffer
+ 010A  88 04				mov	[si],al	; pointed to by DS:SI
+ 010C  46				inc	si
+ 010D  47				inc	di
+ 010E  E2 F7				loop	L1
+ 0110  F8				clc		; CF=0 means tail found
+ 0111  EB 01				jmp	L3
+
+ 0113  F9			L2:	stc		; set carry: no command tail
+ 0114  C6 04 00			L3:	mov	byte ptr [si],0	; store null byte
+ 0117  61				popa		; restore registers
+ 0118  07				pop	es
+ 0119  C3				ret
+ 011A				GetCommandTail ENDP
+
+
+				;----------------------------------------------------------------
+ 011A				GetMaxXY PROC
+
+				; Returns the current columns (X) and rows (Y) of the console
+				; window buffer. These values can change while a program is running
+				; if the user modifies the properties of the application window.
+				; Receives: nothing
+				; Returns: DH = rows (Y); DL = columns (X)
+				; (range of each is 1-255)
+				;
+				; Added to the library on 10/20/2002, on the suggestion of Ben Schwartz.
+				;----------------------------------------------------------------
+ 0027				.data
+ 0027 00000000 00 0000		videoInfo VideoInfoStruc <>
+       0000 0000
+       0008 [
+        00 00
+       ] 00 00 00 0000 00
+       00 00 0000 00 00
+       0000 00 0000 00 00
+       00
+       0003 [
+        00
+       ] 00 00
+       000D [
+        00
+       ]
+ 0068 56 69 64 65 6F 20		str1 BYTE "Video function 1Bh is not supported",0dh,0ah,0
+       66 75 6E 63 74 69
+       6F 6E 20 31 42 68
+       20 69 73 20 6E 6F
+       74 20 73 75 70 70
+       6F 72 74 65 64 0D
+       0A 00
+ 011A				.code
+ 011A  50				push ax
+ 011B  53				push bx
+ 011C  51				push cx
+
+ 011D  B4 1B				mov  ah,1Bh	; get video information
+ 011F  BB 0000				mov  bx,0	; always zero
+ 0122  1E				push ds
+ 0123  07				pop  es
+ 0124  BF 0027 R			mov  di,OFFSET videoInfo
+ 0127  CD 10				int  10h
+ 0129  3C 1B				cmp  al,1Bh
+ 012B  75 0A				jne  notSupported
+
+ 012D  8A 36 0049 R			mov  dh,videoInfo.numCharRows
+ 0131  8A 16 002C R			mov  dl,BYTE PTR videoInfo.numCharColumns
+
+ 0135  EB 06				jmp  finished
+
+ 0137				notSupported:
+ 0137  BA 0068 R			mov dx,OFFSET str1
+ 013A  E8 06C1				call WriteString
+
+ 013D				finished:
+ 013D  59				pop cx
+ 013E  5B				pop bx
+ 013F  58				pop ax
+ 0140  C3				ret
+ 0141				GetMaxXY ENDP
+
+
+				;-------------------------------------------------------
+ 0141				GetMseconds PROC
+					LOCAL hours:BYTE, minutes:BYTE, seconds:BYTE, hhss:BYTE
+				;
+				; Returns the number of milliseconds that have elapsed
+				; since midnight of the current day.
+				; Receives: nothing
+				; Returns: EAX = milliseconds, accurate to 50 milliseconds
+				;--------------------------------------------------------
+ 008E				.data
+
+ 008E 00 00 00 00		timerec TimeRecord <>
+ 0092 00000000			mSec  DWORD  ?
+
+ 0147				.code
+ 0147  66| 53				push ebx
+ 0149  66| 51				push ecx
+ 014B  66| 52				push edx
+
+				; get system time (see Section 13.2.4)
+ 014D  B4 2C				mov  ah,2Ch
+ 014F  CD 21				int  21h
+ 0151  88 6E FF				mov  hours,ch
+ 0154  88 4E FE				mov  minutes,cl
+ 0157  88 76 FD				mov  seconds,dh
+ 015A  88 56 FC				mov  hhss,dl
+
+				; (mSec = hours * 3600000)
+ 015D  66| 0F B6 46 FF			movzx eax,hours
+ 0162  66| BB 0036EE80			mov  ebx,3600000
+ 0168  66| F7 E3			mul  ebx
+ 016B  66| A3 0092 R			mov  mSec,eax
+
+				; mSec = mSec + (minutes * 60000)
+ 016F  66| 0F B6 46 FE			movzx  eax,minutes
+ 0174  66| BB 0000EA60			mov  ebx,60000
+ 017A  66| F7 E3			mul  ebx
+ 017D  66| 01 06 0092 R			add  mSec,eax
+
+				; mSec = mSec + (seconds * 1000)
+ 0182  66| 0F B6 46 FD			movzx eax,seconds
+ 0187  66| BB 000003E8			mov  ebx,1000
+ 018D  66| F7 E3			mul  ebx
+ 0190  66| 01 06 0092 R			add  mSec,eax
+
+				; mSec = mSec + (hundredths * 10)
+ 0195  66| 0F B6 46 FC			movzx eax,hhss
+ 019A  66| BB 0000000A			mov  ebx,10
+ 01A0  66| F7 E3			mul  ebx
+ 01A3  66| 01 06 0092 R			add  mSec,eax
+
+				; Return mSec in EAX
+ 01A8  66| A1 0092 R			mov  eax,mSec
+
+ 01AC  66| 5A				pop  edx
+ 01AE  66| 59				pop  ecx
+ 01B0  66| 5B				pop  ebx
+					ret
+ 01B6				GetMseconds ENDP
+
+
+				;---------------------------------------------------
+ 01B6				Gotoxy PROC
+				;
+				; Sets the cursor position on video page 0.
+				; Receives: DH,DL = row, column
+				; Returns: nothing
+				;---------------------------------------------------
+ 01B6  60				pusha
+ 01B7  B4 02				mov ah,2
+ 01B9  B7 00				mov bh,0
+ 01BB  CD 10				int 10h
+ 01BD  61				popa
+ 01BE  C3				ret
+ 01BF				Gotoxy ENDP
+
+
+				;---------------------------------------------------
+ 01BF				HexByte PROC
+					LOCAL theByte:BYTE
+				;
+				; Display the byte in AL in hexadecimal
+				; Called only by DumpMem. Updated 9/21/01
+				;---------------------------------------------------
+ 01C5  60				pusha
+ 01C6  88 46 FF				mov  theByte,al	; save the byte
+ 01C9  B9 0002				mov  cx,2
+
+ 01CC				HB1:
+ 01CC  C0 46 FF 04			rol  theByte,4
+ 01D0  8A 46 FF				mov  al,theByte
+ 01D3  24 0F				and  al,0Fh
+ 01D5  BB 01F6 R			mov  bx,OFFSET xtable
+ 01D8  D7				xlat
+
+					; insert hex char in the buffer
+					; and display using WriteString
+ 01D9  A2 0000 R			mov  buffer,al
+ 01DC  C6 06 0001 R 00			mov  [buffer+1],0
+ 01E1  BA 0000 R			mov  dx,OFFSET buffer
+ 01E4  E8 0617				call WriteString
+
+ 01E7  E2 E3				Loop HB1
+
+ 01E9  61				popa
+					ret
+ 01EE				HexByte ENDP
+
+				;---------------------------------------------------
+ 01EE				DumpRegs PROC
+				;
+				; Displays EAX, EBX, ECX, EDX, ESI, EDI, EBP, ESP in
+				; hexadecimal. Also displays the Zero, Sign, Carry, and
+				; Overflow flags.
+				; Receives: nothing.
+				; Returns: nothing.
+				;
+				; Warning: do not create any local variables or stack
+				; parameters, because they will alter the EBP register.
+				;---------------------------------------------------
+ 0096				.data
+ 0096 0000			flags  WORD  ?
+ 0098 0000			saveIP WORD ?
+ 009A 0000			saveSP WORD ?
+ 01EE				.code
+ 01EE  8F 06 0098 R			pop saveIP	; get current IP
+ 01F2  89 26 009A R			mov saveSP,sp	; save SP's value at entry
+ 01F6  FF 36 0098 R			push saveIP	; replace it on stack
+ 01FA  66| 50				push eax
+ 01FC  66| 9C				pushfd	; push flags
+
+ 01FE  9C				pushf	; copy flags to a variable
+ 01FF  8F 06 0096 R			pop  flags
+
+					NewLine
+ 009C			     1	.data
+ 009C 0D 0A 00		     1	??0007 BYTE 13,10,0
+ 0203			     1	.code
+ 0203  52		     1		push dx
+ 0204  BA 009C R	     1		mov  dx,OFFSET ??0007
+ 0207  E8 05F4		     1		call WriteString
+ 020A  5A		     1		pop  dx
+					mShowRegister EAX,EAX
+ 009F			     1	.data
+ 009F 20 20 45 41 58 3D	     1	??0008 BYTE "  EAX=",0
+       00
+ 020B			     1	.code
+ 020B  66| 50		     1		push eax
+ 020D  66| 52		     1		push edx
+ 020F  66| BA 0000009F R     1		mov  edx,OFFSET ??0008
+ 0215  E8 05E6		     1		call WriteString
+ 0218  66| 5A		     1		pop  edx
+ 021A  66| 8B C0	     1		mov  eax,EAX
+ 021D  E8 04DE		     1		call WriteHex
+ 0220  66| 58		     1		pop  eax
+					mShowRegister EBX,EBX
+ 00A6			     1	.data
+ 00A6 20 20 45 42 58 3D	     1	??0009 BYTE "  EBX=",0
+       00
+ 0222			     1	.code
+ 0222  66| 50		     1		push eax
+ 0224  66| 52		     1		push edx
+ 0226  66| BA 000000A6 R     1		mov  edx,OFFSET ??0009
+ 022C  E8 05CF		     1		call WriteString
+ 022F  66| 5A		     1		pop  edx
+ 0231  66| 8B C3	     1		mov  eax,EBX
+ 0234  E8 04C7		     1		call WriteHex
+ 0237  66| 58		     1		pop  eax
+					mShowRegister ECX,ECX
+ 00AD			     1	.data
+ 00AD 20 20 45 43 58 3D	     1	??000A BYTE "  ECX=",0
+       00
+ 0239			     1	.code
+ 0239  66| 50		     1		push eax
+ 023B  66| 52		     1		push edx
+ 023D  66| BA 000000AD R     1		mov  edx,OFFSET ??000A
+ 0243  E8 05B8		     1		call WriteString
+ 0246  66| 5A		     1		pop  edx
+ 0248  66| 8B C1	     1		mov  eax,ECX
+ 024B  E8 04B0		     1		call WriteHex
+ 024E  66| 58		     1		pop  eax
+					mShowRegister EDX,EDX
+ 00B4			     1	.data
+ 00B4 20 20 45 44 58 3D	     1	??000B BYTE "  EDX=",0
+       00
+ 0250			     1	.code
+ 0250  66| 50		     1		push eax
+ 0252  66| 52		     1		push edx
+ 0254  66| BA 000000B4 R     1		mov  edx,OFFSET ??000B
+ 025A  E8 05A1		     1		call WriteString
+ 025D  66| 5A		     1		pop  edx
+ 025F  66| 8B C2	     1		mov  eax,EDX
+ 0262  E8 0499		     1		call WriteHex
+ 0265  66| 58		     1		pop  eax
+					NewLine
+ 00BB			     1	.data
+ 00BB 0D 0A 00		     1	??000C BYTE 13,10,0
+ 0267			     1	.code
+ 0267  52		     1		push dx
+ 0268  BA 00BB R	     1		mov  dx,OFFSET ??000C
+ 026B  E8 0590		     1		call WriteString
+ 026E  5A		     1		pop  dx
+					mShowRegister ESI,ESI
+ 00BE			     1	.data
+ 00BE 20 20 45 53 49 3D	     1	??000D BYTE "  ESI=",0
+       00
+ 026F			     1	.code
+ 026F  66| 50		     1		push eax
+ 0271  66| 52		     1		push edx
+ 0273  66| BA 000000BE R     1		mov  edx,OFFSET ??000D
+ 0279  E8 0582		     1		call WriteString
+ 027C  66| 5A		     1		pop  edx
+ 027E  66| 8B C6	     1		mov  eax,ESI
+ 0281  E8 047A		     1		call WriteHex
+ 0284  66| 58		     1		pop  eax
+					mShowRegister EDI,EDI
+ 00C5			     1	.data
+ 00C5 20 20 45 44 49 3D	     1	??000E BYTE "  EDI=",0
+       00
+ 0286			     1	.code
+ 0286  66| 50		     1		push eax
+ 0288  66| 52		     1		push edx
+ 028A  66| BA 000000C5 R     1		mov  edx,OFFSET ??000E
+ 0290  E8 056B		     1		call WriteString
+ 0293  66| 5A		     1		pop  edx
+ 0295  66| 8B C7	     1		mov  eax,EDI
+ 0298  E8 0463		     1		call WriteHex
+ 029B  66| 58		     1		pop  eax
+
+					mShowRegister EBP,EBP
+ 00CC			     1	.data
+ 00CC 20 20 45 42 50 3D	     1	??000F BYTE "  EBP=",0
+       00
+ 029D			     1	.code
+ 029D  66| 50		     1		push eax
+ 029F  66| 52		     1		push edx
+ 02A1  66| BA 000000CC R     1		mov  edx,OFFSET ??000F
+ 02A7  E8 0554		     1		call WriteString
+ 02AA  66| 5A		     1		pop  edx
+ 02AC  66| 8B C5	     1		mov  eax,EBP
+ 02AF  E8 044C		     1		call WriteHex
+ 02B2  66| 58		     1		pop  eax
+
+ 02B4  66| 0F B7 06 009A R		movzx eax,saveSP
+					mShowRegister ESP,EAX
+ 00D3			     1	.data
+ 00D3 20 20 45 53 50 3D	     1	??0010 BYTE "  ESP=",0
+       00
+ 02BA			     1	.code
+ 02BA  66| 50		     1		push eax
+ 02BC  66| 52		     1		push edx
+ 02BE  66| BA 000000D3 R     1		mov  edx,OFFSET ??0010
+ 02C4  E8 0537		     1		call WriteString
+ 02C7  66| 5A		     1		pop  edx
+ 02C9  66| 8B C0	     1		mov  eax,EAX
+ 02CC  E8 042F		     1		call WriteHex
+ 02CF  66| 58		     1		pop  eax
+					NewLine
+ 00DA			     1	.data
+ 00DA 0D 0A 00		     1	??0011 BYTE 13,10,0
+ 02D1			     1	.code
+ 02D1  52		     1		push dx
+ 02D2  BA 00DA R	     1		mov  dx,OFFSET ??0011
+ 02D5  E8 0526		     1		call WriteString
+ 02D8  5A		     1		pop  dx
+
+ 02D9  66| 0F B7 06 0098 R		movzx eax,saveIP
+					mShowRegister EIP,EAX
+ 00DD			     1	.data
+ 00DD 20 20 45 49 50 3D	     1	??0012 BYTE "  EIP=",0
+       00
+ 02DF			     1	.code
+ 02DF  66| 50		     1		push eax
+ 02E1  66| 52		     1		push edx
+ 02E3  66| BA 000000DD R     1		mov  edx,OFFSET ??0012
+ 02E9  E8 0512		     1		call WriteString
+ 02EC  66| 5A		     1		pop  edx
+ 02EE  66| 8B C0	     1		mov  eax,EAX
+ 02F1  E8 040A		     1		call WriteHex
+ 02F4  66| 58		     1		pop  eax
+
+ 02F6  66| 0F B7 06 0096 R		movzx eax,flags
+					mShowRegister EFL,EAX
+ 00E4			     1	.data
+ 00E4 20 20 45 46 4C 3D	     1	??0013 BYTE "  EFL=",0
+       00
+ 02FC			     1	.code
+ 02FC  66| 50		     1		push eax
+ 02FE  66| 52		     1		push edx
+ 0300  66| BA 000000E4 R     1		mov  edx,OFFSET ??0013
+ 0306  E8 04F5		     1		call WriteString
+ 0309  66| 5A		     1		pop  edx
+ 030B  66| 8B C0	     1		mov  eax,EAX
+ 030E  E8 03ED		     1		call WriteHex
+ 0311  66| 58		     1		pop  eax
+
+				; Show the flags
+					ShowFlag CF,1
+ 00EB			     1	.data
+ 00EB 20 20 43 46 3D	     1	??0014 BYTE "  CF="
+ 00F0 00 00		     1	??0015 BYTE ?,0
+ 0313			     1	.code
+ 0313  50		     1		push ax
+ 0314  52		     1		push dx
+ 0315  A1 0096 R	     1		mov  ax,flags	; retrieve the flags
+ 0318  C6 06 00F0 R 31	     1		mov  ??0015,'1'
+ 031D  D1 E8		     1		shr  ax,1	; shift into carry flag
+ 031F  72 05		     1		jc   ??0016
+ 0321  C6 06 00F0 R 30	     1		mov  ??0015,'0'
+ 0326			     1	??0016:
+ 0326  BA 00EB R	     1		mov  dx,OFFSET ??0014	; display flag name and value
+ 0329  E8 04D2		     1		call WriteString
+ 032C  5A		     1		pop  dx
+ 032D  58		     1		pop  ax
+					ShowFlag SF,8
+ 00F2			     1	.data
+ 00F2 20 20 53 46 3D	     1	??0017 BYTE "  SF="
+ 00F7 00 00		     1	??0018 BYTE ?,0
+ 032E			     1	.code
+ 032E  50		     1		push ax
+ 032F  52		     1		push dx
+ 0330  A1 0096 R	     1		mov  ax,flags	; retrieve the flags
+ 0333  C6 06 00F7 R 31	     1		mov  ??0018,'1'
+ 0338  C1 E8 08		     1		shr  ax,8	; shift into carry flag
+ 033B  72 05		     1		jc   ??0019
+ 033D  C6 06 00F7 R 30	     1		mov  ??0018,'0'
+ 0342			     1	??0019:
+ 0342  BA 00F2 R	     1		mov  dx,OFFSET ??0017	; display flag name and value
+ 0345  E8 04B6		     1		call WriteString
+ 0348  5A		     1		pop  dx
+ 0349  58		     1		pop  ax
+					ShowFlag ZF,7
+ 00F9			     1	.data
+ 00F9 20 20 5A 46 3D	     1	??001A BYTE "  ZF="
+ 00FE 00 00		     1	??001B BYTE ?,0
+ 034A			     1	.code
+ 034A  50		     1		push ax
+ 034B  52		     1		push dx
+ 034C  A1 0096 R	     1		mov  ax,flags	; retrieve the flags
+ 034F  C6 06 00FE R 31	     1		mov  ??001B,'1'
+ 0354  C1 E8 07		     1		shr  ax,7	; shift into carry flag
+ 0357  72 05		     1		jc   ??001C
+ 0359  C6 06 00FE R 30	     1		mov  ??001B,'0'
+ 035E			     1	??001C:
+ 035E  BA 00F9 R	     1		mov  dx,OFFSET ??001A	; display flag name and value
+ 0361  E8 049A		     1		call WriteString
+ 0364  5A		     1		pop  dx
+ 0365  58		     1		pop  ax
+					ShowFlag OF,12
+ 0100			     1	.data
+ 0100 20 20 4F 46 3D	     1	??001D BYTE "  OF="
+ 0105 00 00		     1	??001E BYTE ?,0
+ 0366			     1	.code
+ 0366  50		     1		push ax
+ 0367  52		     1		push dx
+ 0368  A1 0096 R	     1		mov  ax,flags	; retrieve the flags
+ 036B  C6 06 0105 R 31	     1		mov  ??001E,'1'
+ 0370  C1 E8 0C		     1		shr  ax,12	; shift into carry flag
+ 0373  72 05		     1		jc   ??001F
+ 0375  C6 06 0105 R 30	     1		mov  ??001E,'0'
+ 037A			     1	??001F:
+ 037A  BA 0100 R	     1		mov  dx,OFFSET ??001D	; display flag name and value
+ 037D  E8 047E		     1		call WriteString
+ 0380  5A		     1		pop  dx
+ 0381  58		     1		pop  ax
+
+					NewLine
+ 0107			     1	.data
+ 0107 0D 0A 00		     1	??0020 BYTE 13,10,0
+ 0382			     1	.code
+ 0382  52		     1		push dx
+ 0383  BA 0107 R	     1		mov  dx,OFFSET ??0020
+ 0386  E8 0475		     1		call WriteString
+ 0389  5A		     1		pop  dx
+					NewLine
+ 010A			     1	.data
+ 010A 0D 0A 00		     1	??0021 BYTE 13,10,0
+ 038A			     1	.code
+ 038A  52		     1		push dx
+ 038B  BA 010A R	     1		mov  dx,OFFSET ??0021
+ 038E  E8 046D		     1		call WriteString
+ 0391  5A		     1		pop  dx
+
+ 0392  66| 9D				popfd	; restore flags
+ 0394  66| 58				pop eax	; restore EAX
+ 0396  C3				ret
+ 0397				DumpRegs ENDP
+
+
+				;-----------------------------------------------
+ 0397				Isdigit PROC
+				;
+				; Determines whether the character in AL is a
+				; valid decimal digit.
+				; Receives: AL = character
+				; Returns: ZF=1 if AL contains a valid decimal
+				;   digit; otherwise, ZF=0.
+				;-----------------------------------------------
+ 0397  3C 30				 cmp   al,'0'
+ 0399  72 07				 jb    ID1
+ 039B  3C 39				 cmp   al,'9'
+ 039D  77 03				 ja    ID1
+ 039F  A9 0000				 test  ax,0     		; set ZF = 1
+ 03A2  C3			ID1: ret
+ 03A3				Isdigit ENDP
+
+
+				;--------------------------------------------------------------
+ 03A3				RandomRange PROC
+				;
+				; Returns an unsigned pseudo-random 32-bit integer
+				; in EAX, between 0 and n-1. Input parameter:
+				; EAX = n.
+				;--------------------------------------------------------------
+ 03A3  55				push  bp
+ 03A4  8B EC				mov   bp,sp
+ 03A6  66| 53				push  ebx
+ 03A8  66| 52				push  edx
+
+ 03AA  66| 8B D8			mov   ebx,eax  ; maximum value
+ 03AD  E8 0012				call  Random32 ; eax = random number
+ 03B0  66| BA 00000000			mov   edx,0
+ 03B6  66| F7 F3			div   ebx      ; divide by max value
+ 03B9  66| 8B C2			mov   eax,edx  ; return the remainder
+
+ 03BC  66| 5A				pop   edx
+ 03BE  66| 5B				pop   ebx
+ 03C0  5D				pop   bp
+ 03C1  C3				ret
+ 03C2				RandomRange ENDP
+
+
+				;--------------------------------------------------------------
+ 03C2				Random32  PROC
+				;
+				; Returns an unsigned pseudo-random 32-bit integer
+				; in EAX,in the range 0 - FFFFFFFFh.
+				;--------------------------------------------------------------
+ 010D				.data
+ 010D 00000001			seed  dd 1
+ 03C2				.code
+ 03C2  66| 52				push  edx
+ 03C4  66| B8 000343FD			mov   eax, 343FDh
+ 03CA  66| F7 2E 010D R			imul  seed
+ 03CF  66| 05 00269EC3			add   eax, 269EC3h
+ 03D5  66| A3 010D R			mov   seed, eax    ; save the seed for the next call
+ 03D9  66| C1 C8 08			ror   eax,8        ; rotate out the lowest digit (10/22/00)
+ 03DD  66| 5A				pop   edx
+ 03DF  C3				ret
+ 03E0				Random32  ENDP
+
+
+				;--------------------------------------------------------
+ 03E0				Randomize PROC
+				;
+				; Re-seeds the random number generator with the current time
+				; in milliseconds.
+				; Last update: 10/21/2002
+				;--------------------------------------------------------
+ 03E0  66| 50				push eax
+ 03E2  E8 FD5C				call GetMseconds
+ 03E5  66| A3 010D R			mov  seed,eax
+ 03E9  66| 58				pop  eax
+ 03EB  C3				ret
+ 03EC				Randomize ENDP
+
+
+				;---------------------------------------------------------
+ 03EC				ReadChar PROC
+				;
+				; Reads one character from standard input. The character is
+				; not echoed on the screen. Waits for the character if none is
+				; currently in the input buffer.
+				; Receives: nothing
+				; Returns:  AL = ASCII code
+				;----------------------------------------------------------
+ 03EC  B4 01				mov  ah,1
+ 03EE  CD 21				int  21h
+ 03F0  C3				ret
+ 03F1				ReadChar ENDP
+
+
+				;--------------------------------------------------------
+ 03F1				ReadHex PROC
+				;
+				; Reads a 32-bit hexadecimal integer from standard input,
+				; stopping when the Enter key is pressed.
+				; Receives: nothing
+				; Returns: EAX = binary integer value
+				; Remarks: No error checking performed for bad digits
+				; or excess digits.
+				; Last update: 11/7/01
+				;--------------------------------------------------------
+ 0111				.data
+ = 0014				HMAX_DIGITS = 20
+ 0111  0014 [			Hinputarea  BYTE  HMAX_DIGITS dup(0),0
+        00
+       ] 00
+ 0126 00 01 02 03 04 05		xbtable     BYTE 0,1,2,3,4,5,6,7,8,9,7 DUP(0FFh),10,11,12,13,14,15
+       06 07 08 09
+       0007 [
+        FF
+       ] 0A 0B 0C 0D 0E
+       0F
+ 013D 00000000			numVal      DWORD ?
+ 0141 00			charVal     BYTE ?
+
+ 03F1				.code
+ 03F1  66| 53				push ebx
+ 03F3  66| 51				push ecx
+ 03F5  66| 52				push edx
+ 03F7  66| 56				push esi
+
+ 03F9  66| BA 00000111 R		mov   edx,OFFSET Hinputarea
+ 03FF  66| 8B F2			mov   esi,edx		; save in ESI also
+ 0402  66| B9 00000014			mov   ecx,HMAX_DIGITS
+ 0408  E8 012C				call  ReadString		; input the string
+ 040B  66| 8B C8			mov   ecx,eax           		; save length in ECX
+
+					; Start to convert the number.
+
+ 040E  66| C7 06 013D R		B4: mov   numVal,0		; clear accumulator
+       00000000
+ 0417  66| BB 00000126 R		mov   ebx,OFFSET xbtable		; translate table
+
+					; Repeat loop for each digit.
+
+ 041D  67& 8A 06		B5: mov al,[esi]	; get character from buffer
+ 0420  3C 46				cmp al,'F'	; lowercase letter?
+ 0422  76 02				jbe B6	; no
+ 0424  24 DF				and al,11011111b	; yes: convert to uppercase
+
+ 0426				B6:
+ 0426  2C 30				sub   al,30h	; adjust for table
+ 0428  D7				xlat  	; translate to binary
+ 0429  A2 0141 R			mov   charVal,al
+
+ 042C  66| B8 00000010			mov   eax,16	; numVal *= 16
+ 0432  66| F7 26 013D R			mul   numVal
+ 0437  66| A3 013D R			mov   numVal,eax
+ 043B  66| 0F B6 06 0141 R		movzx eax,charVal	; numVal += charVal
+ 0441  66| 01 06 013D R			add   numVal,eax
+ 0446  66| 46				inc   esi	; point to next digit
+ 0448  E2 D3				loop  B5	; repeat, decrement counter
+
+ 044A  66| A1 013D R			mov  eax,numVal	; return binary result
+ 044E  66| 5E				pop  esi
+ 0450  66| 5A				pop  edx
+ 0452  66| 59				pop  ecx
+ 0454  66| 5B				pop  ebx
+ 0456  C3				ret
+ 0457				ReadHex ENDP
+
+
+				;--------------------------------------------------------
+ 0457				ReadInt PROC uses ebx ecx edx esi
+				  LOCAL Lsign:DWORD, saveDigit:DWORD
+				;
+				; Reads a 32-bit signed decimal integer from standard
+				; input, stopping when the Enter key is pressed.
+				; All valid digits occurring before a non-numeric character
+				; are converted to the integer value. Leading spaces are
+				; ignored, and an optional leading + or - sign is permitted.
+
+				; Receives: nothing
+				; Returns:  If OF=0, the integer is valid, and EAX = binary value.
+				; If OF=1, the integer is invalid and EAX = 0.
+				;
+				; Credits: Thanks to Courtney Amor, a student at the UCLA Mathematics
+				; department, for pointing out improvements that have been
+				; implemented in this version.
+				; Last update: 10/20/2002
+				;--------------------------------------------------------
+ 0142				.data
+ = 0050				LMAX_DIGITS = 80
+ 0142  0050 [			Linputarea    BYTE  LMAX_DIGITS dup(0),0
+        00
+       ] 00
+ 0193 0D 0A 3C 33 32 2D		overflow_msgL BYTE  0dh,0ah,"<32-bit integer overflow>",0
+       62 69 74 20 69 6E
+       74 65 67 65 72 20
+       6F 76 65 72 66 6C
+       6F 77 3E 00
+ 01AF 30 64 68 2C 30 61		invalid_msgL  BYTE  "0dh,0ah,<invalid integer>",0
+       68 2C 3C 69 6E 76
+       61 6C 69 64 20 69
+       6E 74 65 67 65 72
+       3E 00
+ 0465				.code
+
+				; Input a string of digits using ReadString.
+
+ 0465  66| BA 00000142 R		mov   edx,offset Linputarea
+ 046B  66| 8B F2			mov   esi,edx           		; save offset in ESI
+ 046E  66| B9 00000050			mov   ecx,LMAX_DIGITS
+ 0474  E8 00C0				call  ReadString
+ 0477  66| 8B C8			mov   ecx,eax           		; save length in CX
+ 047A  66| C7 46 FC			mov   Lsign,1         		; assume number is positive
+       00000001
+ 0482  66| 83 F9 00			cmp   ecx,0            		; greater than zero?
+ 0486  75 09				jne   L1              		; yes: continue
+ 0488  66| B8 00000000			mov   eax,0            		; no: set return value
+ 048E  E9 009A				jmp   L10              		; and exit
+
+				; Skip over any leading spaces.
+
+ 0491  67& 8A 06		L1:	mov   al,[esi]         		; get a character from buffer
+ 0494  3C 20				cmp   al,' '          		; space character found?
+ 0496  75 06				jne   L2              		; no: check for a sign
+ 0498  66| 46				inc   esi              		; yes: point to next char
+ 049A  E2 F5				loop  L1
+ 049C  E3 74				jcxz  L8              		; quit if all spaces
+
+				; Check for a leading sign.
+
+ 049E  3C 2D			L2:	cmp   al,'-'          		; minus sign found?
+ 04A0  75 0E				jne   L3              		; no: look for plus sign
+
+ 04A2  66| C7 46 FC			mov   Lsign,-1        		; yes: sign is negative
+       FFFFFFFF
+ 04AA  66| 49				dec   ecx              		; subtract from counter
+ 04AC  66| 46				inc   esi              		; point to next char
+ 04AE  EB 10				jmp   L4
+
+ 04B0  3C 2B			L3:	cmp   al,'+'          		; plus sign found?
+ 04B2  75 0C				jne   L4              		; no: must be a digit
+ 04B4  66| 46				inc   esi              		; yes: skip over the sign
+ 04B6  66| 49				dec   ecx              		; subtract from counter
+
+				; Test the first digit, and exit if it is nonnumeric.
+
+ 04B8  67& 8A 06		L3A:mov  al,[esi]		; get first character
+ 04BB  E8 FED9				call IsDigit		; is it a digit?
+ 04BE  75 4C				jnz  L7A		; no: show error message
+
+				; Start to convert the number.
+
+ 04C0  66| B8 00000000		L4:	mov   eax,0           		; clear accumulator
+ 04C6  66| BB 0000000A			mov   ebx,10          		; EBX is the divisor
+
+				; Repeat loop for each digit.
+
+ 04CC  67& 8A 16		L5:	mov  dl,[esi]		; get character from buffer
+ 04CF  80 FA 30				cmp  dl,'0'		; character < '0'?
+ 04D2  72 50				jb   L9
+ 04D4  80 FA 39				cmp  dl,'9'		; character > '9'?
+ 04D7  77 4B				ja   L9
+ 04D9  66| 83 E2 0F			and  edx,0Fh		; no: convert to binary
+
+ 04DD  66| 89 56 F8			mov  saveDigit,edx
+ 04E1  66| F7 EB			imul ebx		; EDX:EAX = EAX * EBX
+ 04E4  66| 8B 56 F8			mov  edx,saveDigit
+
+ 04E8  70 09				jo   L6		; quit if overflow
+ 04EA  66| 03 C2			add  eax,edx         		; add new digit to AX
+ 04ED  70 04				jo   L6		; quit if overflow
+ 04EF  66| 46				inc  esi              		; point to next digit
+ 04F1  EB D9				jmp  L5		; get next digit
+
+				; Overflow has occured, unlesss EAX = 80000000h
+				; and the sign is negative:
+
+ 04F3  66| 3D 80000000		L6: cmp  eax,80000000h
+ 04F9  75 09				jne  L7
+ 04FB  66| 83 7E FC FF			cmp  Lsign,-1
+ 0500  75 02				jne  L7		; overflow occurred
+ 0502  EB 20				jmp  L9		; the integer is valid
+
+				; Choose "integer overflow" messsage.
+
+ 0504  66| BA 00000193 R	L7:	mov  edx,OFFSET overflow_msgL
+ 050A  EB 06				jmp  L8
+
+				; Choose "invalid integer" message.
+
+ 050C				L7A:
+ 050C  66| BA 000001AF R		mov  edx,OFFSET invalid_msgL
+
+				; Display the error message pointed to by EDX and set the Overflow flag
+
+ 0512  E8 02E9			L8:	call WriteString
+ 0515  E8 FB01				call Crlf
+ 0518  B0 7F				mov  al,127
+ 051A  04 01				add  al,1		; set Overflow flag
+ 051C  66| B8 00000000			mov  eax,0            		; set return value to zero
+ 0522  EB 07				jmp  L10		; and exit
+
+				; IMUL leaves the Sign flag in an undeterminate state, so the OR instruction
+				; determines the sign of the iteger in EAX.
+ 0524  66| F7 6E FC		L9: imul Lsign           		; EAX = EAX * sign
+ 0528  66| 0B C0			or   eax,eax		; determine the number's sign
+
+ 052B				L10:ret
+ 0537				ReadInt ENDP
+
+
+				;--------------------------------------------------------
+ 0537				ReadString PROC
+				; Reads a string from standard input and places the
+				; characters in a buffer. Reads past end of line,
+				; and removes the CF/LF from the string.
+				; Receives: DS:DX points to the input buffer,
+				;           CX = maximum input chars, plus 1.
+				; Returns:  AX = size of the input string.
+				; Comments: Stops either when Enter (0Dh) is pressed,
+				; or (CX-1) characters have been read.
+				; Bug fixed 9/22/03: return value was too large by 1
+				;--------------------------------------------------------
+ 0537  51				push cx		; save registers
+ 0538  56				push si
+ 0539  51				push cx		; save digit count again
+ 053A  8B F2				mov  si,dx		; point to input buffer
+ 053C  49				dec  cx		; save room for null byte
+
+ 053D  B4 01			L1:	mov  ah,1		; function: keyboard input
+ 053F  CD 21				int  21h		; DOS returns char in AL
+ 0541  3C 0D				cmp  al,0Dh		; end of line?
+ 0543  74 05				je   L2		; yes: exit
+ 0545  88 04				mov  [si],al		; no: store the character
+ 0547  46				inc  si		; increment buffer pointer
+ 0548  E2 F3				loop L1		; loop until CX=0
+
+ 054A  C6 04 00			L2:	mov  byte ptr [si],0		; end with a null byte
+ 054D  58				pop  ax		; original digit count
+ 054E  2B C1				sub  ax,cx		; AX = size of input string
+ 0550  48				dec  ax		; ADDED 9/22/03	
+ 0551  5E				pop  si		; restore registers
+ 0552  59				pop  cx
+ 0553  C3				ret
+ 0554				ReadString ENDP
+
+
+				;------------------------------------------------------
+ 0554				SetTextColor PROC
+						LOCAL attrib:BYTE
+				;
+				; Clears the screen (console window, video page 0) and locates 
+				; the cursor at row 0, column 0 with a selected color attribute.
+				; Receives: AX = color attribute (only AL is used, but we 
+				;   list AX here to be compatible with the Irvine32 library)
+				; Returns:  nothing
+				; Checks the current window size, but because of MS-DOS 
+				; Limitations: rows can be 1-24, 41, or 49. Columns can be 1-79,
+				; 1-25, 42, or 50. Console windows differing from these ranges 
+				; will be resized when the window is cleared..
+				;-------------------------------------------------------
+ 055A  60				pusha
+					
+ 055B  88 46 FF				mov	attrib,AL	; save the attribute
+ 055E  B8 0600				mov	ax,0600h    	; scroll window up
+ 0561  B9 0000				mov	cx,0        	; upper left corner (0,0)
+ 0564  E8 FBB3				call	GetMaxXY	; get window dimensions
+ 0567  81 EA 0101			sub	dx,0101h
+ 056B  8A 7E FF				mov	bh,attrib        	; set attribute
+ 056E  CD 10				int	10h         	; call BIOS
+ 0570  B4 02				mov	ah,2        	; locate cursor at 0,0
+ 0572  B7 00				mov	bh,0        	; video page 0
+ 0574  BA 0000				mov	dx,0	; row 0, column 0
+ 0577  CD 10				int	10h
+ 0579  61				popa
+					ret
+ 057E				SetTextColor ENDP
+
+
+				;----------------------------------------------------------
+ 057E				Str_compare PROC USES ax dx si di,
+					string1:PTR BYTE,
+					string2:PTR BYTE
+				;
+				; Compare two strings.
+				; Returns nothing, but the Zero and Carry flags are affected
+				; exactly as they would be by the CMP instruction.
+				; Last update: 1/18/02
+				;-----------------------------------------------------
+ 0585  8B 76 04			    mov  si,string1
+ 0588  8B 7E 06			    mov  di,string2
+
+ 058B  8A 04			L1: mov  al,[si]
+ 058D  8A 15			    mov  dl,[di]
+ 058F  3C 00			    cmp  al,0    			; end of string1?
+ 0591  75 07			    jne  L2      			; no
+ 0593  80 FA 00			    cmp  dl,0    			; yes: end of string2?
+ 0596  75 02			    jne  L2      			; no
+ 0598  EB 06			    jmp  L3      			; yes, exit with ZF = 1
+
+ 059A  46			L2: inc  si      			; point to next
+ 059B  47			    inc  di
+ 059C  3A C2			    cmp  al,dl   			; chars equal?
+ 059E  74 EB			    je   L1      			; yes: continue loop
+				                 			; no: exit with flags set
+ 05A0				L3: ret
+ 05A8				Str_compare ENDP
+
+
+				;---------------------------------------------------------
+ 05A8				Str_copy PROC USES ax cx si di,
+				 	source:PTR BYTE, 		; source string
+				 	target:PTR BYTE		; target string
+				;
+				; Copy a string from source to target.
+				; Requires: the target string must contain enough
+				;           space to hold a copy of the source string.
+				; Last update: 1/18/02
+				;----------------------------------------------------------
+					INVOKE Str_length,source 		; AX = length source
+ 05B5  8B C8				mov cx,ax		; REP count
+ 05B7  41				inc cx         		; add 1 for null byte
+ 05B8  8B 76 04				mov si,source
+ 05BB  8B 7E 06				mov di,target
+ 05BE  FC				cld               		; direction = up
+ 05BF  F3/ A4				rep movsb      		; copy the string
+					ret
+ 05C9				Str_copy ENDP
+
+
+				;---------------------------------------------------------
+ 05C9				Str_length PROC USES di,
+					pString:PTR BYTE	; pointer to string
+				;
+				; Return the length of a null-terminated string.
+				; Receives: pString - pointer to a string
+				; Returns: AX = string length
+				; Last update: 1/18/02
+				;---------------------------------------------------------
+ 05CD  8B 7E 04				mov di,pString
+ 05D0  B8 0000				mov ax,0     	; character count
+ 05D3				L1:
+ 05D3  80 3D 00				cmp byte ptr [di],0	; end of string?
+ 05D6  74 04				je  L2	; yes: quit
+ 05D8  47				inc di	; no: point to next
+ 05D9  40				inc ax	; add 1 to count
+ 05DA  EB F7				jmp L1
+ 05DC				L2: ret
+ 05E1				Str_length ENDP
+
+
+				;-----------------------------------------------------------
+ 05E1				Str_trim PROC USES ax cx di,
+					pString:PTR BYTE,		; points to string
+					char:BYTE		; char to remove
+				;
+				; Remove all occurences of a given character from
+				; the end of a string.
+				; Returns: nothing
+				; Last update: 1/18/02
+				;-----------------------------------------------------------
+ 05E7  8B 7E 04				mov  di,pString
+					INVOKE Str_length,di		; returns length in AX
+ 05EE  83 F8 00				cmp  ax,0		; zero-length string?
+ 05F1  74 12				je   L2		; yes: exit
+ 05F3  8B C8				mov  cx,ax		; no: counter = string length
+ 05F5  48				dec  ax
+ 05F6  03 F8				add  di,ax		; DI points to last char
+ 05F8  8A 46 06				mov  al,char		; char to trim
+ 05FB  FD				std		; direction = reverse
+ 05FC  F3/ AE				repe scasb		; skip past trim character
+ 05FE  75 01				jne  L1		; removed first character?
+ 0600  4F				dec  di		; adjust DI: ZF=1 && ECX=0
+ 0601  C6 45 02 00		L1:	mov  BYTE PTR [di+2],0		; insert null byte
+ 0605				L2:	ret
+ 060C				Str_trim ENDP
+
+
+				;---------------------------------------------------
+ 060C				Str_ucase PROC USES ax si,
+					pString:PTR BYTE
+				; Convert a null-terminated string to upper case.
+				; Receives: pString - a pointer to the string
+				; Returns: nothing
+				; Last update: 1/18/02
+				;---------------------------------------------------
+ 0611  8B 76 04				mov si,pString
+ 0614				L1:
+ 0614  8A 04				mov al,[si]		; get char
+ 0616  3C 00				cmp al,0		; end of string?
+ 0618  74 0E				je  L3		; yes: quit
+ 061A  3C 61				cmp al,'a'		; below "a"?
+ 061C  72 07				jb  L2
+ 061E  3C 7A				cmp al,'z'		; above "z"?
+ 0620  77 03				ja  L2
+ 0622  80 24 DF				and BYTE PTR [si],11011111b		; convert the char
+
+ 0625  46			L2:	inc si		; next char
+ 0626  EB EC				jmp L1
+
+ 0628				L3: ret
+ 062E				Str_ucase ENDP
+
+
+				;------------------------------------------------------
+ 062E				WaitMsg PROC
+				;
+				; Displays "Press any key to continue"
+				; Receives: nothing
+				; Returns: nothing
+				;------------------------------------------------------
+ 01C9				.data
+ 01C9 50 72 65 73 73 20		waitmsgstr BYTE "Press any key to continue...",0
+       61 6E 79 20 6B 65
+       79 20 74 6F 20 63
+       6F 6E 74 69 6E 75
+       65 2E 2E 2E 00
+ 062E				.code
+ 062E  52				push dx
+ 062F  BA 01C9 R			mov  dx,OFFSET waitmsgstr
+ 0632  E8 01C9				call WriteString
+ 0635  E8 FDB4				call ReadChar
+					NewLine
+ 01E6			     1	.data
+ 01E6 0D 0A 00		     1	??0022 BYTE 13,10,0
+ 0638			     1	.code
+ 0638  52		     1		push dx
+ 0639  BA 01E6 R	     1		mov  dx,OFFSET ??0022
+ 063C  E8 01BF		     1		call WriteString
+ 063F  5A		     1		pop  dx
+ 0640  5A				pop  dx
+ 0641  C3				ret
+ 0642				WaitMsg ENDP
+
+
+				;------------------------------------------------------
+ 0642				WriteBin PROC
+				;
+				; Writes a 32-bit integer to standard output in
+				; binary format. Converted to a shell that calls the
+				; WriteBinB procedure, to be compatible with the
+				; library documentation in Chapter 5.
+				; Receives: EAX = the integer to write
+				; Returns: nothing
+				;
+				; Last update: 11/18/02
+				;------------------------------------------------------
+
+ 0642  66| 53				push ebx
+ 0644  66| BB 00000004			mov  ebx,4	; select doubleword format
+ 064A  E8 0003				call WriteBinB
+ 064D  66| 5B				pop  ebx
+
+ 064F  C3				ret
+ 0650				WriteBin ENDP
+
+
+				;------------------------------------------------------
+ 0650				WriteBinB PROC
+				;
+				; Writes a 32-bit integer to standard output in
+				; binary format.
+				; Receives: EAX = the integer to write
+				;           EBX = display size (1,2,4)
+				; Returns: nothing
+				;
+				; Last update: 11/18/02  (added)
+				;------------------------------------------------------
+ 0650  66| 60				pushad
+
+ 0652  66| 83 FB 01		    cmp   ebx,1   	; ensure EBX is 1, 2, or 4
+ 0656  74 0C			    jz    WB0
+ 0658  66| 83 FB 02		    cmp   ebx,2
+ 065C  74 06			    jz    WB0
+ 065E  66| BB 00000004		    mov   ebx,4   	; set to 4 (default) even if it was 4
+ 0664				WB0:
+ 0664  66| 8B CB		    mov   ecx,ebx
+ 0667  66| D1 E1		    shl   ecx,1   	; number of 4-bit groups in low end of EAX
+ 066A  66| 83 FB 04		    cmp   ebx,4
+ 066E  74 0E			    jz    WB0A
+ 0670  66| C1 C8 08		    ror   eax,8   	; assume TYPE==1 and ROR byte
+ 0674  66| 83 FB 01		    cmp   ebx,1
+ 0678  74 04			    jz    WB0A    	; good assumption
+ 067A  66| C1 C8 08		    ror   eax,8   	; TYPE==2 so ROR another byte
+ 067E				WB0A:
+
+ 067E  66| BE 00000000 R		mov   esi,OFFSET buffer
+
+ 0684				WB1:
+ 0684  66| 51				push  ecx	; save loop count
+
+ 0686  66| B9 00000004			mov   ecx,4	; 4 bits in each group
+ 068C				WB1A:
+ 068C  66| D1 E0			shl   eax,1	; shift EAX left into Carry flag
+ 068F  67& C6 06 30			mov   BYTE PTR [esi],'0'	; choose '0' as default digit
+ 0693  73 04				jnc   WB2	; if no carry, then jump to L2
+ 0695  67& C6 06 31			mov   BYTE PTR [esi],'1'	; else move '1' to DL
+ 0699				WB2:
+ 0699  66| 46				inc   esi
+ 069B  E2 EF				Loop  WB1A	; go to next bit within group
+
+ 069D  67& C6 06 20			mov   BYTE PTR [esi],' '  	; insert a blank space
+ 06A1  66| 46				inc   esi	; between groups
+ 06A3  66| 59				pop   ecx	; restore outer loop count
+ 06A5  E2 DD				loop  WB1	; begin next 4-bit group
+
+ 06A7  66| 4E			    dec  esi    	; eliminate the trailing space
+ 06A9  67& C6 06 00			mov  BYTE PTR [esi],0	; insert null byte at end
+ 06AD  66| BA 00000000 R	    mov  edx,OFFSET buffer	; display the buffer
+ 06B3  E8 0148				call WriteString
+
+ 06B6  66| 61				popad
+ 06B8  C3				ret
+ 06B9				WriteBinB ENDP
+
+
+				;------------------------------------------------------
+ 06B9				WriteChar PROC
+				;
+				; Write a character to standard output
+				; Recevies: AL = character
+				;------------------------------------------------------
+ 06B9  50				push ax
+ 06BA  52				push dx
+ 06BB  B4 02				mov  ah,2
+ 06BD  8A D0				mov  dl,al
+ 06BF  CD 21				int  21h
+ 06C1  5A				pop  dx
+ 06C2  58				pop  ax
+ 06C3  C3				ret
+ 06C4				WriteChar ENDP
+
+
+				;-----------------------------------------------------
+ 06C4				WriteDec PROC
+				;
+				; Writes an unsigned 32-bit decimal number to
+				; standard output. Input parameters: EAX = the
+				; number to write.
+				;
+				;------------------------------------------------------
+ 01E9				.data
+				; There will be as many as 10 digits.
+ = 000C				BUFFER_SIZE = 12
+
+ 01E9  000C [			bufferL BYTE BUFFER_SIZE dup(?),0
+        00
+       ] 00
+ 01F6 30 31 32 33 34 35		xtable BYTE "0123456789ABCDEF"
+       36 37 38 39 41 42
+       43 44 45 46
+
+ 06C4				.code
+ 06C4  66| 60				pushad               ; save all 32-bit data registers
+ 06C6  B9 0000				mov   cx,0           ; digit counter
+ 06C9  BF 01E9 R			mov   di,OFFSET bufferL
+ 06CC  83 C7 0B				add   di,(BUFFER_SIZE - 1)
+ 06CF  66| BB 0000000A			mov   ebx,10	; decimal number base
+
+ 06D5				WI1:
+ 06D5  66| BA 00000000			mov   edx,0          ; clear dividend to zero
+ 06DB  66| F7 F3			div   ebx            ; divide EAX by the radix
+
+ 06DE  66| 92				xchg  eax,edx        ; swap quotient, remainder
+ 06E0  E8 0014				call  AsciiDigit     ; convert AL to ASCII
+ 06E3  88 05				mov   [di],al        ; save the digit
+ 06E5  4F				dec   di             ; back up in buffer
+ 06E6  66| 92				xchg  eax,edx        ; swap quotient, remainder
+
+ 06E8  41				inc   cx             ; increment digit count
+ 06E9  66| 0B C0			or    eax,eax        ; quotient = 0?
+ 06EC  75 E7				jnz   WI1            ; no, divide again
+
+					; Display the digits (CX = count)
+ 06EE				WI3:
+ 06EE  47				inc   di
+ 06EF  8B D7				mov   dx,di
+ 06F1  E8 010A				call  WriteString
+
+ 06F4				WI4:
+ 06F4  66| 61				popad	; restore 32-bit registers
+ 06F6  C3				ret
+ 06F7				WriteDec ENDP
+
+				; Convert AL to an ASCII digit.
+
+ 06F7				AsciiDigit PROC private
+ 06F7  53				push  bx
+ 06F8  BB 01F6 R			mov   bx,OFFSET xtable
+ 06FB  D7				xlat
+ 06FC  5B				pop   bx
+ 06FD  C3				ret
+ 06FE				AsciiDigit ENDP
+
+
+				;------------------------------------------------------
+ 06FE				WriteHex PROC
+				;
+				; Writes an unsigned 32-bit hexadecimal number to
+				; standard output.
+				; Input parameters: EAX = the number to write.
+				; Shell interface for WriteHexB, to retain compatibility
+				; with the documentation in Chapter 5.
+				;
+				; Last update: 11/18/02
+				;------------------------------------------------------
+ 06FE  66| 53				push ebx
+ 0700  66| BB 00000004			mov  ebx,4
+ 0706  E8 0003				call WriteHexB
+ 0709  66| 5B				pop  ebx
+ 070B  C3				ret
+ 070C				WriteHex ENDP
+
+
+				;------------------------------------------------------
+ 070C				WriteHexB PROC
+					LOCAL displaySize:DWORD
+				;
+				; Writes an unsigned 32-bit hexadecimal number to
+				; standard output.
+				; Receives: EAX = the number to write. EBX = display size (1,2,4)
+				; Returns: nothing
+				;
+				; Last update: 11/18/02
+				;------------------------------------------------------
+
+ = 0008				DOUBLEWORD_BUFSIZE = 8
+
+ 0206				.data
+ 0206  0008 [			bufferLHB BYTE DOUBLEWORD_BUFSIZE DUP(?),0
+        00
+       ] 00
+
+ 0712				.code
+ 0712  66| 60				pushad               	; save all 32-bit data registers
+ 0714  66| 89 5E FC			mov displaySize,ebx	; save component size
+
+				; Clear unused bits from EAX to avoid a divide overflow.
+				; Also, verify that EBX contains either 1, 2, or 4. If any
+				; other value is found, default to 4.
+
+				.IF EBX == 1	; check specified display size
+ 071E  66| 25 000000FF			and  eax,0FFh	; byte == 1
+				.ELSE
+					.IF EBX == 2
+ 072C  66| 25 0000FFFF			  and  eax,0FFFFh	; word == 2
+					.ELSE
+ 0734  66| C7 46 FC			  mov displaySize,4	; default (doubleword) == 4
+       00000004
+					.ENDIF
+				.ENDIF
+
+ 073C  66| 8B 7E FC			mov   edi,displaySize	; let EDI point to the end of the buffer:
+ 0740  66| D1 E7			shl   edi,1	; multiply by 2 (2 digits per byte)
+ 0743  67& C6 87 00000206 R		mov   bufferLHB[edi],0 	; store null string terminator
+       00
+ 074B  66| 4F				dec   edi	; back up one position
+
+ 074D  66| B9 00000000			mov   ecx,0           	; digit counter
+ 0753  66| BB 00000010			mov   ebx,16	; hexadecimal base (divisor)
+
+ 0759				L1:
+ 0759  66| BA 00000000			mov   edx,0          	; clear upper dividend
+ 075F  66| F7 F3			div   ebx            	; divide EAX by the base
+
+ 0762  66| 92				xchg  eax,edx        	; swap quotient, remainder
+ 0764  E8 FF90				call  AsciiDigit     	; convert AL to ASCII
+ 0767  67& 88 87 00000206 R		mov   bufferLHB[edi],al       ; save the digit
+ 076E  66| 4F				dec   edi             	; back up in buffer
+ 0770  66| 92				xchg  eax,edx        	; swap quotient, remainder
+
+ 0772  66| 41				inc   ecx             	; increment digit count
+ 0774  66| 0B C0			or    eax,eax        	; quotient = 0?
+ 0777  75 E0				jnz   L1           	; no, divide again
+
+					 ; Insert leading zeros
+
+ 0779  66| 8B 46 FC			mov   eax,displaySize	; set EAX to the
+ 077D  66| D1 E0			shl   eax,1	; number of digits to print
+ 0780  66| 2B C1			sub   eax,ecx	; subtract the actual digit count
+ 0783  74 0F				jz    L3           	; display now if no leading zeros required
+ 0785  66| 8B C8			mov   ecx,eax         	; CX = number of leading zeros to insert
+
+ 0788				L2:
+ 0788  67& C6 87 00000206 R		mov   bufferLHB[edi],'0'	; insert a zero
+       30
+ 0790  66| 4F				dec   edi                  	; back up
+ 0792  E2 F4				loop  L2                	; continue the loop
+
+					; Display the digits. ECX contains the number of
+					; digits to display, and EDX points to the first digit.
+ 0794				L3:
+ 0794  66| 8B 4E FC			mov   ecx,displaySize	; output format size
+ 0798  66| D1 E1			shl   ecx,1         	; multiply by 2
+ 079B  66| 47				inc   edi
+ 079D  66| BA 00000206 R		mov   edx,OFFSET bufferLHB
+ 07A3  66| 03 D7			add   edx,edi
+ 07A6  E8 0055				call  WriteString
+
+ 07A9  66| 61				popad	; restore 32-bit registers
+					ret
+ 07AF				WriteHexB ENDP
+
+
+				;-----------------------------------------------------
+ 07AF				WriteInt PROC
+				;
+				; Writes a 32-bit signed binary integer to standard output
+				; in ASCII decimal.
+				; Receives: EAX = the integer
+				; Returns:  nothing
+				; Comments: Displays a leading sign, no leading zeros.
+				;-----------------------------------------------------
+ = 000C				WI_Bufsize = 12
+ = 0001				true  =   1
+ = 0000				false =   0
+ 020F				.data
+ 020F  000C [			buffer_B  BYTE  WI_Bufsize dup(0),0  ; buffer to hold digits
+        00
+       ] 00
+ 021C 00			neg_flag  BYTE  ?
+
+ 07AF				.code
+ 07AF  66| 60				 pushad
+
+ 07B1  C6 06 021C R 00			 mov   neg_flag,false    ; assume neg_flag is false
+ 07B6  66| 0B C0			 or    eax,eax             ; is AX positive?
+ 07B9  79 08				 jns   WIS1              ; yes: jump to B1
+ 07BB  66| F7 D8			 neg   eax                ; no: make it positive
+ 07BE  C6 06 021C R 01			 mov   neg_flag,true     ; set neg_flag to true
+
+ 07C3				WIS1:
+ 07C3  B9 0000				 mov   cx,0              ; digit count = 0
+ 07C6  BF 020F R			 mov   di,OFFSET buffer_B
+ 07C9  83 C7 0B				 add   di,(WI_Bufsize-1)
+ 07CC  66| BB 0000000A			 mov   ebx,10             ; will divide by 10
+
+ 07D2				WIS2:
+ 07D2  66| BA 00000000			 mov   edx,0              ; set dividend to 0
+ 07D8  66| F7 F3			 div   ebx                ; divide AX by 10
+ 07DB  80 CA 30				 or    dl,30h            ; convert remainder to ASCII
+ 07DE  4F				 dec   di                ; reverse through the buffer
+ 07DF  88 15				 mov   [di],dl           ; store ASCII digit
+ 07E1  41				 inc   cx                ; increment digit count
+ 07E2  66| 0B C0			 or    eax,eax             ; quotient > 0?
+ 07E5  75 EB				 jnz   WIS2              ; yes: divide again
+
+					 ; Insert the sign.
+
+ 07E7  4F				 dec   di	; back up in the buffer
+ 07E8  41				 inc   cx               	; increment counter
+ 07E9  C6 05 2B				 mov   byte ptr [di],'+' 	; insert plus sign
+ 07EC  80 3E 021C R 00			 cmp   neg_flag,false    	; was the number positive?
+ 07F1  74 03				 jz    WIS3              	; yes
+ 07F3  C6 05 2D				 mov   byte ptr [di],'-' 	; no: insert negative sign
+
+ 07F6				WIS3:	; Display the number
+ 07F6  8B D7				mov  dx,di
+ 07F8  E8 0003				call WriteString
+
+ 07FB  66| 61				popad
+ 07FD  C3				ret
+ 07FE				WriteInt ENDP
+
+
+				;--------------------------------------------------------
+ 07FE				WriteString PROC
+				; Writes a null-terminated string to standard output
+				; Receives: DS:DX points to the string
+				; Returns: nothing
+				; Last update: 08/02/2002
+				;--------------------------------------------------------
+ 07FE  60				pusha
+					INVOKE Str_length,dx   		; AX = string length
+ 0803  8B C8				mov  cx,ax        		; CX = number of bytes
+ 0805  B4 40				mov  ah,40h       		; write to file or device
+ 0807  BB 0001				mov  bx,1         		; standard output handle
+ 080A  CD 21				int  21h          		; call MS-DOS
+ 080C  61				popa
+ 080D  C3				ret
+ 080E				WriteString ENDP
+
+				END
+Microsoft (R) Macro Assembler Version 8.00.50727.42	    05/30/06 17:46:19
+&Link Library Functions		(Irvine16.asm		     Symbols 2 - 1
+
+
+
+
+Macros:
+
+                N a m e                 Type
+
+IsDefined  . . . . . . . . . . .	Func
+NewLine  . . . . . . . . . . . .	Proc
+ShowFlag . . . . . . . . . . . .	Proc
+WriteSpace . . . . . . . . . . .	Proc
+mClrscr  . . . . . . . . . . . .	Proc
+mDumpMem . . . . . . . . . . . .	Proc
+mDump  . . . . . . . . . . . . .	Proc
+mGotoxy  . . . . . . . . . . . .	Proc
+mNewLine . . . . . . . . . . . .	Proc
+mReadStr . . . . . . . . . . . .	Proc
+mShowRegister  . . . . . . . . .	Proc
+mShow  . . . . . . . . . . . . .	Proc
+mWriteLn . . . . . . . . . . . .	Proc
+mWriteSpace  . . . . . . . . . .	Proc
+mWriteStr  . . . . . . . . . . .	Proc
+mWrite . . . . . . . . . . . . .	Proc
+
+
+Structures and Unions:
+
+                N a m e                  Size
+                                         Offset      Type
+
+CursorPosStruc . . . . . . . . .	 0002
+  Ycoord . . . . . . . . . . . .	 0000	     Byte
+  Xcoord . . . . . . . . . . . .	 0001	     Byte
+ExtGetDskFreSpcStruc . . . . . .	 002C
+  StructSize . . . . . . . . . .	 0000	     Word
+  Level  . . . . . . . . . . . .	 0002	     Word
+  SectorsPerCluster  . . . . . .	 0004	     DWord
+  BytesPerSector . . . . . . . .	 0008	     DWord
+  AvailableClusters  . . . . . .	 000C	     DWord
+  TotalClusters  . . . . . . . .	 0010	     DWord
+  AvailablePhysSectors . . . . .	 0014	     DWord
+  TotalPhysSectors . . . . . . .	 0018	     DWord
+  AvailableAllocationUnits . . .	 001C	     DWord
+  TotalAllocationUnits . . . . .	 0020	     DWord
+  Rsvd . . . . . . . . . . . . .	 0024	     DWord
+FPU_ENVIRON  . . . . . . . . . .	 001C
+  controlWord  . . . . . . . . .	 0000	     Word
+  statusWord . . . . . . . . . .	 0004	     Word
+  tagWord  . . . . . . . . . . .	 0008	     Word
+  instrPtrLow  . . . . . . . . .	 000C	     Word
+  opcodeAndInstrPtrHi  . . . . .	 0010	     DWord
+  operandPtrLow  . . . . . . . .	 0014	     Word
+  operandPtrHi . . . . . . . . .	 0018	     DWord
+TimeRecord . . . . . . . . . . .	 0004
+  hours  . . . . . . . . . . . .	 0000	     Byte
+  minutes  . . . . . . . . . . .	 0001	     Byte
+  seconds  . . . . . . . . . . .	 0002	     Byte
+  hhss . . . . . . . . . . . . .	 0003	     Byte
+VideoInfoStruc . . . . . . . . .	 0041
+  supportedInfoPtr . . . . . . .	 0000	     DWord
+  videoMode  . . . . . . . . . .	 0004	     Byte
+  numCharColumns . . . . . . . .	 0005	     Word
+  videoBufferLen . . . . . . . .	 0007	     Word
+  videoBufferStartPtr  . . . . .	 0009	     Word
+  cursors  . . . . . . . . . . .	 000B	     Word
+  cursorStartLine  . . . . . . .	 001B	     Byte
+  cursorEndLine  . . . . . . . .	 001C	     Byte
+  activeDisplayPage  . . . . . .	 001D	     Byte
+  adapterBasePortAddr  . . . . .	 001E	     Word
+  currentRegister3B8or3D8  . . .	 0020	     Byte
+  currentRegister3B9or3D9  . . .	 0021	     Byte
+  numCharRows  . . . . . . . . .	 0022	     Byte
+  characterScanHeight  . . . . .	 0023	     Word
+  activeDisplayCode  . . . . . .	 0025	     Byte
+  inactiveDisplayCode  . . . . .	 0026	     Byte
+  numberOfColors . . . . . . . .	 0027	     Word
+  numberOfVideoPages . . . . . .	 0029	     Byte
+  numberOfScanLines  . . . . . .	 002A	     Word
+  primaryCharBlock . . . . . . .	 002C	     Byte
+  secondaryCharBlock . . . . . .	 002D	     Byte
+  miscStateInfo  . . . . . . . .	 002E	     Byte
+  videoMemAvail  . . . . . . . .	 0032	     Byte
+  savePointerStateInfo . . . . .	 0033	     Byte
+
+
+Segments and Groups:
+
+                N a m e                 Size     Length   Align   Combine Class
+
+DGROUP . . . . . . . . . . . . .	GROUP
+_DATA  . . . . . . . . . . . . .	16 Bit	 021D	  Word	  Public  'DATA'	
+STACK  . . . . . . . . . . . . .	16 Bit	 0200	  Para	  Stack	  'STACK'	 
+_BSS . . . . . . . . . . . . . .	16 Bit	 0200	  Word	  Public  'BSS'  
+_TEXT  . . . . . . . . . . . . .	16 Bit	 080E	  Word	  Public  'CODE'	
+
+
+Procedures, parameters, and locals:
+
+                N a m e                 Type     Value    Attr
+
+AsciiDigit . . . . . . . . . . .	P Near	 06F7	  _TEXT	Length= 0007 Private STDCALL
+Clrscr . . . . . . . . . . . . .	P Near	 0000	  _TEXT	Length= 0019 Public STDCALL
+Crlf . . . . . . . . . . . . . .	P Near	 0019	  _TEXT	Length= 0009 Public STDCALL
+Delay  . . . . . . . . . . . . .	P Near	 0022	  _TEXT	Length= 002C Public STDCALL
+  L1 . . . . . . . . . . . . . .	L Near	 0039	  _TEXT	
+  quit . . . . . . . . . . . . .	L Near	 004B	  _TEXT	
+DumpMem  . . . . . . . . . . . .	P Near	 004E	  _TEXT	Length= 0097 Public STDCALL
+  unitsize . . . . . . . . . . .	Word	 bp - 0002
+  byteCount  . . . . . . . . . .	Word	 bp - 0004
+  L1 . . . . . . . . . . . . . .	L Near	 007F	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 0091	  _TEXT	
+  L3 . . . . . . . . . . . . . .	L Near	 00AC	  _TEXT	
+  L3B  . . . . . . . . . . . . .	L Near	 00D3	  _TEXT	
+  L4 . . . . . . . . . . . . . .	L Near	 00D7	  _TEXT	
+DumpRegs . . . . . . . . . . . .	P Near	 01EE	  _TEXT	Length= 01A9 Public STDCALL
+  ??0016 . . . . . . . . . . . .	L Near	 0326	  _TEXT	
+  ??0019 . . . . . . . . . . . .	L Near	 0342	  _TEXT	
+  ??001C . . . . . . . . . . . .	L Near	 035E	  _TEXT	
+  ??001F . . . . . . . . . . . .	L Near	 037A	  _TEXT	
+GetCommandtail . . . . . . . . .	P Near	 00E5	  _TEXT	Length= 0035 Public STDCALL
+  L1 . . . . . . . . . . . . . .	L Near	 0107	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 0113	  _TEXT	
+  L3 . . . . . . . . . . . . . .	L Near	 0114	  _TEXT	
+GetMaxXY . . . . . . . . . . . .	P Near	 011A	  _TEXT	Length= 0027 Public STDCALL
+  notSupported . . . . . . . . .	L Near	 0137	  _TEXT	
+  finished . . . . . . . . . . .	L Near	 013D	  _TEXT	
+GetMseconds  . . . . . . . . . .	P Near	 0141	  _TEXT	Length= 0075 Public STDCALL
+  hours  . . . . . . . . . . . .	Byte	 bp - 0001
+  minutes  . . . . . . . . . . .	Byte	 bp - 0002
+  seconds  . . . . . . . . . . .	Byte	 bp - 0003
+  hhss . . . . . . . . . . . . .	Byte	 bp - 0004
+Gotoxy . . . . . . . . . . . . .	P Near	 01B6	  _TEXT	Length= 0009 Public STDCALL
+HexByte  . . . . . . . . . . . .	P Near	 01BF	  _TEXT	Length= 002F Public STDCALL
+  theByte  . . . . . . . . . . .	Byte	 bp - 0001
+  HB1  . . . . . . . . . . . . .	L Near	 01CC	  _TEXT	
+IsDigit  . . . . . . . . . . . .	P Near	 0397	  _TEXT	Length= 000C Public STDCALL
+  ID1  . . . . . . . . . . . . .	L Near	 03A2	  _TEXT	
+Random32 . . . . . . . . . . . .	P Near	 03C2	  _TEXT	Length= 001E Public STDCALL
+RandomRange  . . . . . . . . . .	P Near	 03A3	  _TEXT	Length= 001F Public STDCALL
+Randomize  . . . . . . . . . . .	P Near	 03E0	  _TEXT	Length= 000C Public STDCALL
+ReadChar . . . . . . . . . . . .	P Near	 03EC	  _TEXT	Length= 0005 Public STDCALL
+ReadFloat  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ReadHex  . . . . . . . . . . . .	P Near	 03F1	  _TEXT	Length= 0066 Public STDCALL
+  B4 . . . . . . . . . . . . . .	L Near	 040E	  _TEXT	
+  B5 . . . . . . . . . . . . . .	L Near	 041D	  _TEXT	
+  B6 . . . . . . . . . . . . . .	L Near	 0426	  _TEXT	
+ReadInt  . . . . . . . . . . . .	P Near	 0457	  _TEXT	Length= 00E0 Public STDCALL
+  Lsign  . . . . . . . . . . . .	DWord	 bp - 0004
+  saveDigit  . . . . . . . . . .	DWord	 bp - 0008
+  L1 . . . . . . . . . . . . . .	L Near	 0491	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 049E	  _TEXT	
+  L3 . . . . . . . . . . . . . .	L Near	 04B0	  _TEXT	
+  L3A  . . . . . . . . . . . . .	L Near	 04B8	  _TEXT	
+  L4 . . . . . . . . . . . . . .	L Near	 04C0	  _TEXT	
+  L5 . . . . . . . . . . . . . .	L Near	 04CC	  _TEXT	
+  L6 . . . . . . . . . . . . . .	L Near	 04F3	  _TEXT	
+  L7 . . . . . . . . . . . . . .	L Near	 0504	  _TEXT	
+  L7A  . . . . . . . . . . . . .	L Near	 050C	  _TEXT	
+  L8 . . . . . . . . . . . . . .	L Near	 0512	  _TEXT	
+  L9 . . . . . . . . . . . . . .	L Near	 0524	  _TEXT	
+  L10  . . . . . . . . . . . . .	L Near	 052B	  _TEXT	
+ReadString . . . . . . . . . . .	P Near	 0537	  _TEXT	Length= 001D Public STDCALL
+  L1 . . . . . . . . . . . . . .	L Near	 053D	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 054A	  _TEXT	
+SetTextColor . . . . . . . . . .	P Near	 0554	  _TEXT	Length= 002A Public STDCALL
+  attrib . . . . . . . . . . . .	Byte	 bp - 0001
+ShowFPUStack . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Str_compare  . . . . . . . . . .	P Near	 057E	  _TEXT	Length= 002A Public STDCALL
+  string1  . . . . . . . . . . .	Word	 bp + 0004
+  string2  . . . . . . . . . . .	Word	 bp + 0006
+  L1 . . . . . . . . . . . . . .	L Near	 058B	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 059A	  _TEXT	
+  L3 . . . . . . . . . . . . . .	L Near	 05A0	  _TEXT	
+Str_copy . . . . . . . . . . . .	P Near	 05A8	  _TEXT	Length= 0021 Public STDCALL
+  source . . . . . . . . . . . .	Word	 bp + 0004
+  target . . . . . . . . . . . .	Word	 bp + 0006
+Str_length . . . . . . . . . . .	P Near	 05C9	  _TEXT	Length= 0018 Public STDCALL
+  pString  . . . . . . . . . . .	Word	 bp + 0004
+  L1 . . . . . . . . . . . . . .	L Near	 05D3	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 05DC	  _TEXT	
+Str_trim . . . . . . . . . . . .	P Near	 05E1	  _TEXT	Length= 002B Public STDCALL
+  pString  . . . . . . . . . . .	Word	 bp + 0004
+  char . . . . . . . . . . . . .	Byte	 bp + 0006
+  L1 . . . . . . . . . . . . . .	L Near	 0601	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 0605	  _TEXT	
+Str_ucase  . . . . . . . . . . .	P Near	 060C	  _TEXT	Length= 0022 Public STDCALL
+  pString  . . . . . . . . . . .	Word	 bp + 0004
+  L1 . . . . . . . . . . . . . .	L Near	 0614	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 0625	  _TEXT	
+  L3 . . . . . . . . . . . . . .	L Near	 0628	  _TEXT	
+WaitMsg  . . . . . . . . . . . .	P Near	 062E	  _TEXT	Length= 0014 Public STDCALL
+WriteBinB  . . . . . . . . . . .	P Near	 0650	  _TEXT	Length= 0069 Public STDCALL
+  WB0  . . . . . . . . . . . . .	L Near	 0664	  _TEXT	
+  WB0A . . . . . . . . . . . . .	L Near	 067E	  _TEXT	
+  WB1  . . . . . . . . . . . . .	L Near	 0684	  _TEXT	
+  WB1A . . . . . . . . . . . . .	L Near	 068C	  _TEXT	
+  WB2  . . . . . . . . . . . . .	L Near	 0699	  _TEXT	
+WriteBin . . . . . . . . . . . .	P Near	 0642	  _TEXT	Length= 000E Public STDCALL
+WriteChar  . . . . . . . . . . .	P Near	 06B9	  _TEXT	Length= 000B Public STDCALL
+WriteDec . . . . . . . . . . . .	P Near	 06C4	  _TEXT	Length= 0033 Public STDCALL
+  WI1  . . . . . . . . . . . . .	L Near	 06D5	  _TEXT	
+  WI3  . . . . . . . . . . . . .	L Near	 06EE	  _TEXT	
+  WI4  . . . . . . . . . . . . .	L Near	 06F4	  _TEXT	
+WriteFloat . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteHexB  . . . . . . . . . . .	P Near	 070C	  _TEXT	Length= 00A3 Public STDCALL
+  displaySize  . . . . . . . . .	DWord	 bp - 0004
+  L1 . . . . . . . . . . . . . .	L Near	 0759	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 0788	  _TEXT	
+  L3 . . . . . . . . . . . . . .	L Near	 0794	  _TEXT	
+WriteHex . . . . . . . . . . . .	P Near	 06FE	  _TEXT	Length= 000E Public STDCALL
+WriteInt . . . . . . . . . . . .	P Near	 07AF	  _TEXT	Length= 004F Public STDCALL
+  WIS1 . . . . . . . . . . . . .	L Near	 07C3	  _TEXT	
+  WIS2 . . . . . . . . . . . . .	L Near	 07D2	  _TEXT	
+  WIS3 . . . . . . . . . . . . .	L Near	 07F6	  _TEXT	
+WriteString  . . . . . . . . . .	P Near	 07FE	  _TEXT	Length= 0010 Public STDCALL
+
+
+Symbols:
+
+                N a m e                 Type     Value    Attr
+
+??0000 . . . . . . . . . . . . .	Byte	 0000	  _DATA	
+??0001 . . . . . . . . . . . . .	Byte	 0017	  _DATA	
+??0002 . . . . . . . . . . . . .	Byte	 001A	  _DATA	
+??0003 . . . . . . . . . . . . .	Byte	 001D	  _DATA	
+??0004 . . . . . . . . . . . . .	Byte	 001F	  _DATA	
+??0005 . . . . . . . . . . . . .	Byte	 0021	  _DATA	
+??0006 . . . . . . . . . . . . .	Byte	 0024	  _DATA	
+??0007 . . . . . . . . . . . . .	Byte	 009C	  _DATA	
+??0008 . . . . . . . . . . . . .	Byte	 009F	  _DATA	
+??0009 . . . . . . . . . . . . .	Byte	 00A6	  _DATA	
+??000A . . . . . . . . . . . . .	Byte	 00AD	  _DATA	
+??000B . . . . . . . . . . . . .	Byte	 00B4	  _DATA	
+??000C . . . . . . . . . . . . .	Byte	 00BB	  _DATA	
+??000D . . . . . . . . . . . . .	Byte	 00BE	  _DATA	
+??000E . . . . . . . . . . . . .	Byte	 00C5	  _DATA	
+??000F . . . . . . . . . . . . .	Byte	 00CC	  _DATA	
+??0010 . . . . . . . . . . . . .	Byte	 00D3	  _DATA	
+??0011 . . . . . . . . . . . . .	Byte	 00DA	  _DATA	
+??0012 . . . . . . . . . . . . .	Byte	 00DD	  _DATA	
+??0013 . . . . . . . . . . . . .	Byte	 00E4	  _DATA	
+??0014 . . . . . . . . . . . . .	Byte	 00EB	  _DATA	
+??0015 . . . . . . . . . . . . .	Byte	 00F0	  _DATA	
+??0017 . . . . . . . . . . . . .	Byte	 00F2	  _DATA	
+??0018 . . . . . . . . . . . . .	Byte	 00F7	  _DATA	
+??001A . . . . . . . . . . . . .	Byte	 00F9	  _DATA	
+??001B . . . . . . . . . . . . .	Byte	 00FE	  _DATA	
+??001D . . . . . . . . . . . . .	Byte	 0100	  _DATA	
+??001E . . . . . . . . . . . . .	Byte	 0105	  _DATA	
+??0020 . . . . . . . . . . . . .	Byte	 0107	  _DATA	
+??0021 . . . . . . . . . . . . .	Byte	 010A	  _DATA	
+??0022 . . . . . . . . . . . . .	Byte	 01E6	  _DATA	
+@CodeSize  . . . . . . . . . . .	Number	 0000h	 
+@DataSize  . . . . . . . . . . .	Number	 0000h	 
+@Interface . . . . . . . . . . .	Number	 0003h	 
+@Model . . . . . . . . . . . . .	Number	 0002h	 
+@cmdline . . . . . . . . . . . .	Text   	 OFFSET __98765765cmdline
+@code  . . . . . . . . . . . . .	Text   	 _TEXT
+@data  . . . . . . . . . . . . .	Text   	 DGROUP
+@fardata?  . . . . . . . . . . .	Text   	 FAR_BSS
+@fardata . . . . . . . . . . . .	Text   	 FAR_DATA
+@stack . . . . . . . . . . . . .	Text   	 DGROUP
+ACTION_CREATED_OPENED  . . . . .	Number	 0002h	 
+ACTION_OPENED  . . . . . . . . .	Number	 0001h	 
+ACTION_REPLACED_OPENED . . . . .	Number	 0003h	 
+BUFFER_SIZE  . . . . . . . . . .	Number	 000Ch	 
+ClockFrequency . . . . . . . . .	Number	 3AEDh	 
+DOUBLEWORD_BUFSIZE . . . . . . .	Number	 0008h	 
+FILE_CREATE  . . . . . . . . . .	Number	 0010h	 
+FILE_OPEN  . . . . . . . . . . .	Number	 0001h	 
+FILE_TRUNCATE  . . . . . . . . .	Number	 0002h	 
+HMAX_DIGITS  . . . . . . . . . .	Number	 0014h	 
+Hinputarea . . . . . . . . . . .	Byte	 0111	  _DATA	
+LIGHT_BLUE . . . . . . . . . . .	Number	 0009h	 
+LIGHT_CYAN . . . . . . . . . . .	Number	 000Bh	 
+LIGHT_GRAY . . . . . . . . . . .	Number	 0007h	 
+LIGHT_GREEN  . . . . . . . . . .	Number	 000Ah	 
+LIGHT_MAGENTA  . . . . . . . . .	Number	 000Dh	 
+LIGHT_RED  . . . . . . . . . . .	Number	 000Ch	 
+LMAX_DIGITS  . . . . . . . . . .	Number	 0050h	 
+Linputarea . . . . . . . . . . .	Byte	 0142	  _DATA	
+MsToMicro  . . . . . . . . . . .	Number	 000F4240h   
+OPEN_ACCESS_READONLY . . . . . .	Number	 0000h	 
+OPEN_ACCESS_READWRITE  . . . . .	Number	 0002h	 
+OPEN_ACCESS_RO_NOMODLASTACCESS .	Number	 0004h	 
+OPEN_ACCESS_WRITEONLY  . . . . .	Number	 0001h	 
+OPEN_FLAGS_ALIAS_HINT  . . . . .	Number	 0400h	 
+OPEN_FLAGS_COMMIT  . . . . . . .	Number	 4000h	 
+OPEN_FLAGS_NOCRITERR . . . . . .	Number	 2000h	 
+OPEN_FLAGS_NOINHERIT . . . . . .	Number	 0080h	 
+OPEN_FLAGS_NO_BUFFERING  . . . .	Number	 0100h	 
+OPEN_FLAGS_NO_COMPRESS . . . . .	Number	 0200h	 
+OPEN_SHARE_COMPATIBLE  . . . . .	Number	 0000h	 
+OPEN_SHARE_DENYNONE  . . . . . .	Number	 0040h	 
+OPEN_SHARE_DENYREADWRITE . . . .	Number	 0010h	 
+OPEN_SHARE_DENYREAD  . . . . . .	Number	 0030h	 
+OPEN_SHARE_DENYWRITE . . . . . .	Number	 0020h	 
+SPACE  . . . . . . . . . . . . .	Number	 0020h	 
+ShowRegister . . . . . . . . . .	Text   	 mShowRegister
+WI_Bufsize . . . . . . . . . . .	Number	 000Ch	 
+_A_ARCH  . . . . . . . . . . . .	Number	 0020h	 
+_A_HIDDEN  . . . . . . . . . . .	Number	 0002h	 
+_A_NORMAL  . . . . . . . . . . .	Number	 0000h	 
+_A_RDONLY  . . . . . . . . . . .	Number	 0001h	 
+_A_SYSTEM  . . . . . . . . . . .	Number	 0004h	 
+_A_VOLID . . . . . . . . . . . .	Number	 0008h	 
+black  . . . . . . . . . . . . .	Number	 0000h	 
+blue . . . . . . . . . . . . . .	Number	 0001h	 
+brown  . . . . . . . . . . . . .	Number	 0006h	 
+bufferLHB  . . . . . . . . . . .	Byte	 0206	  _DATA	
+bufferL  . . . . . . . . . . . .	Byte	 01E9	  _DATA	
+buffer_B . . . . . . . . . . . .	Byte	 020F	  _DATA	
+buffer . . . . . . . . . . . . .	Byte	 0000	  _BSS	
+charVal  . . . . . . . . . . . .	Byte	 0141	  _DATA	
+cyan . . . . . . . . . . . . . .	Number	 0003h	 
+dumpPrompt . . . . . . . . . . .	Byte	 0005	  _DATA	
+exit . . . . . . . . . . . . . .	Text   	 .EXIT
+false  . . . . . . . . . . . . .	Number	 0000h	 
+flags  . . . . . . . . . . . . .	Word	 0096	  _DATA	
+gray . . . . . . . . . . . . . .	Number	 0008h	 
+green  . . . . . . . . . . . . .	Number	 0002h	 
+invalid_msgL . . . . . . . . . .	Byte	 01AF	  _DATA	
+lightBlue  . . . . . . . . . . .	Number	 0009h	 
+lightCyan  . . . . . . . . . . .	Number	 000Bh	 
+lightGray  . . . . . . . . . . .	Number	 0007h	 
+lightGreen . . . . . . . . . . .	Number	 000Ah	 
+lightMagenta . . . . . . . . . .	Number	 000Dh	 
+lightRed . . . . . . . . . . . .	Number	 000Ch	 
+mSec . . . . . . . . . . . . . .	DWord	 0092	  _DATA	
+magenta  . . . . . . . . . . . .	Number	 0005h	 
+neg_flag . . . . . . . . . . . .	Byte	 021C	  _DATA	
+numVal . . . . . . . . . . . . .	DWord	 013D	  _DATA	
+oneSpace . . . . . . . . . . . .	Byte	 0003	  _DATA	
+overflow_msgL  . . . . . . . . .	Byte	 0193	  _DATA	
+red  . . . . . . . . . . . . . .	Number	 0004h	 
+saveIP . . . . . . . . . . . . .	Word	 0098	  _DATA	
+saveSP . . . . . . . . . . . . .	Word	 009A	  _DATA	
+seed . . . . . . . . . . . . . .	DWord	 010D	  _DATA	
+str1 . . . . . . . . . . . . . .	Byte	 0068	  _DATA	
+timerec  . . . . . . . . . . . .	TimeRecord  008E     _DATA	
+true . . . . . . . . . . . . . .	Number	 0001h	 
+videoInfo  . . . . . . . . . . .	VideoInfoStruc  0027	 _DATA	
+waitmsgstr . . . . . . . . . . .	Byte	 01C9	  _DATA	
+white  . . . . . . . . . . . . .	Number	 000Fh	 
+xbtable  . . . . . . . . . . . .	Byte	 0126	  _DATA	
+xtable . . . . . . . . . . . . .	Byte	 01F6	  _DATA	
+yellow . . . . . . . . . . . . .	Number	 000Eh	 
+
+	   0 Warnings
+	   0 Errors

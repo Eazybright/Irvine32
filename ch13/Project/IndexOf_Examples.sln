@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2012
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{BE2415E3-087A-433A-9832-9625EB547A39}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "IndexOf_cpp", "IndexOf_cpp\Project.vcxproj", "{4164AA65-1EF9-4E69-899B-D1BED776070B}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "IndexOf_asm", "IndexOf_asm\IndexOf_asm.vcxproj", "{2D79F47A-C53A-4377-8C52-7A7A0DBA3C85}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4164AA65-1EF9-4E69-899B-D1BED776070B}.Debug|Win32.ActiveCfg = Debug|Win32
+		{4164AA65-1EF9-4E69-899B-D1BED776070B}.Debug|Win32.Build.0 = Debug|Win32
+		{4164AA65-1EF9-4E69-899B-D1BED776070B}.Release|Win32.ActiveCfg = Release|Win32
+		{4164AA65-1EF9-4E69-899B-D1BED776070B}.Release|Win32.Build.0 = Release|Win32
+		{2D79F47A-C53A-4377-8C52-7A7A0DBA3C85}.Debug|Win32.ActiveCfg = Debug|Win32
+		{2D79F47A-C53A-4377-8C52-7A7A0DBA3C85}.Debug|Win32.Build.0 = Debug|Win32
+		{2D79F47A-C53A-4377-8C52-7A7A0DBA3C85}.Release|Win32.ActiveCfg = Release|Win32
+		{2D79F47A-C53A-4377-8C52-7A7A0DBA3C85}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

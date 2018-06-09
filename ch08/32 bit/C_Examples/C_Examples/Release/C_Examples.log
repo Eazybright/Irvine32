@@ -1,0 +1,13 @@
+﻿Build started 11/20/2013 5:37:07 PM.
+     1>Project "D:\Asmbook 7\examples\ch08\32 bit\C_Examples\C_Examples\C_Examples.vcxproj" on node 2 (Rebuild target(s)).
+     1>ClCompile:
+         C:\Program Files\Microsoft Visual Studio 11.0\VC\bin\CL.exe /c /Zi /nologo /W3 /WX- /O2 /Oy- /D WIN32 /D NDEBUG /D _CONSOLE /D _VC80_UPGRADE=0x0710 /D _MBCS /Gm- /EHsc /MT /GS /fp:precise /Zc:wchar_t /Zc:forScope /FA /Fa"Release\\" /Fo"Release\\" /Fd"Release\vc110.pdb" /Gd /TC /analyze- /errorReport:prompt makeArray.c
+         makeArray.c
+       Link:
+         C:\Program Files\Microsoft Visual Studio 11.0\VC\bin\link.exe /ERRORREPORT:PROMPT /OUT:"Release\C_Examples.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"Release\C_Examples.pdb" /SUBSYSTEM:CONSOLE /OPT:REF /OPT:ICF /TLBID:1 /DYNAMICBASE:NO /IMPLIB:"Release\C_Examples.lib" /MACHINE:X86 /SAFESEH:NO Release\makeArray.obj
+         C_Examples.vcxproj -> D:\Asmbook 7\examples\ch08\32 bit\C_Examples\C_Examples\Release\C_Examples.exe
+     1>Done Building Project "D:\Asmbook 7\examples\ch08\32 bit\C_Examples\C_Examples\C_Examples.vcxproj" (Rebuild target(s)).
+
+Build succeeded.
+
+Time Elapsed 00:00:00.57

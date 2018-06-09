@@ -1,0 +1,451 @@
+Microsoft (R) Macro Assembler Version 8.00.50727.104	    05/02/09 00:48:02
+0Sector Display Program              (Sector.asm	     Page 1 - 1
+
+
+				TITLE Sector Display Program              (Sector.asm)
+
+				; Demonstrates INT 21h function 7305h (ABSDiskReadWrite)
+				; This Real-mode program reads and displays disk sectors.
+				; Works on FAT16 & FAT32 file systems running under Windows
+				; 95, 98, and Millenium.
+				; Last update: 06/01/2006
+
+				INCLUDE Irvine16.inc
+			      C ; Irvine16.inc - Include file for programs using
+			      C ; the Irvine16.lib (Real-address mode library).
+			      C 
+			      C ; Last update: 7/29/05
+			      C 
+			      C .NOLIST
+			      C .LIST
+			      C 
+
+				Setcursor PROTO, row:BYTE, col:BYTE
+ = 0dh,0ah			EOLN EQU <0dh,0ah>
+ = 001B				ESC_KEY = 1Bh
+ = 0005				DATA_ROW = 5
+ = 0000				DATA_COL = 0
+ = 0200				SECTOR_SIZE = 512
+ = 0000				READ_MODE = 0		; for Function 7505h
+
+ 000A				DiskIO STRUCT
+ 0000  00000000				startSector DWORD ?		; starting sector number
+ 0004  0001				numSectors  WORD 1		; number of sectors
+ 0006  000B R				bufferOfs   WORD OFFSET buffer	; buffer offset
+ 0008  ---- R				bufferSeg   WORD SEG buffer		; buffer segment
+				DiskIO ENDS
+
+ 0000				.data
+ 0000 00			driveNumber BYTE ?
+ 0001 00000000 0001 000B R	diskStruct DiskIO <>
+       ---- R
+ 000B  0200 [			buffer BYTE SECTOR_SIZE DUP(0),0		    ; one sector
+        00
+       ] 00
+
+ 020C 00			curr_row   BYTE  ?
+ 020D 00			curr_col   BYTE  ?
+
+				; String resources
+ 020E 0D 0A			strLine       BYTE  EOLN,79 DUP(0C4h),EOLN,0
+       004F [
+        C4
+       ] 0D 0A 00
+ 0262 53 65 63 74 6F 72		strHeading    BYTE "Sector Display Program (Sector.exe)"
+       20 44 69 73 70 6C
+       61 79 20 50 72 6F
+       67 72 61 6D 20 28
+       53 65 63 74 6F 72
+       2E 65 78 65 29
+ 0285  0D 0A 0D 0A 00		              BYTE EOLN,EOLN,0
+ 028A 45 6E 74 65 72 20		strAskSector  BYTE "Enter starting sector number: ",0
+       73 74 61 72 74 69
+       6E 67 20 73 65 63
+       74 6F 72 20 6E 75
+       6D 62 65 72 3A 20
+       00
+ 02A9 45 6E 74 65 72 20		strAskDrive   BYTE "Enter drive number (1=A, 2=B, "
+       64 72 69 76 65 20
+       6E 75 6D 62 65 72
+       20 28 31 3D 41 2C
+       20 32 3D 42 2C 20
+ 02C7  33 3D 43 2C 20 34		          BYTE "3=C, 4=D, 5=E, 6=F): ",0
+       3D 44 2C 20 35 3D
+       45 2C 20 36 3D 46
+       29 3A 20 00
+ 02DD 0D 0A 2A 2A 2A 20		strCannotRead BYTE EOLN,"*** Cannot read the sector. "
+       43 61 6E 6E 6F 74
+       20 72 65 61 64 20
+       74 68 65 20 73 65
+       63 74 6F 72 2E 20
+ 02FB  50 72 65 73 73 20		          BYTE "Press any key...", EOLN, 0
+       61 6E 79 20 6B 65
+       79 2E 2E 2E 0D 0A
+       00
+ 030E 50 72 65 73 73 20		strReadingSector \
+       45 73 63 20 74 6F
+       20 71 75 69 74 2C
+       20 6F 72 20 61 6E
+       79 20 6B 65 79 20
+       74 6F 20 63 6F 6E
+       74 69 6E 75 65 2E
+       2E 2E
+					BYTE "Press Esc to quit, or any key to continue..."
+ 033A  0D 0A 0D 0A 52 65		BYTE EOLN,EOLN,"Reading sector: ",0
+       61 64 69 6E 67 20
+       73 65 63 74 6F 72
+       3A 20 00
+
+ 0000				.code
+ 0000				main PROC
+ 0000  B8 ---- R			mov	ax,@data
+ 0003  8E D8				mov	ds,ax
+ 0005  E8 0000 E			call	Clrscr
+ 0008  BA 0262 R			mov	dx,OFFSET strHeading 	; display greeting
+ 000B  E8 0000 E			call	Writestring			; ask user for...
+ 000E  E8 0029				call	AskForSectorNumber
+
+ 0011  E8 0000 E		L1:	call	Clrscr
+ 0014  E8 0045				call	ReadSector			; read a sector
+ 0017  72 11				jc	L2                 		; quit if error
+ 0019  E8 0055				call	DisplaySector
+ 001C  E8 0000 E			call	ReadChar
+ 001F  3C 1B				cmp	al,ESC_KEY         		; Esc pressed?
+ 0021  74 10				je	L3                 		; yes: quit
+ 0023  66| FF 06 0001 R			inc	diskStruct.startSector   ; next sector
+ 0028  EB E7				jmp	L1					; repeat the loop
+
+ 002A  BA 02DD R		L2:	mov	dx,OFFSET strCannotRead	; error message
+ 002D  E8 0000 E			call	Writestring
+ 0030  E8 0000 E			call	ReadChar
+
+ 0033  E8 0000 E		L3:	call	Clrscr
+					exit
+ 003A				main ENDP
+
+				;-----------------------------------------------------
+ 003A				AskForSectorNumber PROC
+				;
+				; Prompts the user for the starting sector number
+				; and drive number. Initializes the startSector
+				; field of the DiskIO structure, as well as the
+				; driveNumber variable.
+				;-----------------------------------------------------
+ 003A  60				pusha
+ 003B  BA 028A R			mov	dx,OFFSET strAskSector
+ 003E  E8 0000 E			call	WriteString
+ 0041  E8 0000 E			call	ReadInt
+ 0044  66| A3 0001 R			mov	diskStruct.startSector,eax
+ 0048  E8 0000 E			call	Crlf
+ 004B  BA 02A9 R			mov	dx,OFFSET strAskDrive
+ 004E  E8 0000 E			call	WriteString
+ 0051  E8 0000 E			call	ReadInt
+ 0054  A2 0000 R			mov	driveNumber,al
+ 0057  E8 0000 E			call	Crlf
+ 005A  61				popa
+ 005B  C3				ret
+ 005C				AskForSectorNumber ENDP
+
+				;-----------------------------------------------------
+ 005C				ReadSector PROC
+				;
+				; Reads a sector into the input buffer.
+				; Receives: DL = Drive number
+				; Requires: DiskIO structure must be initialized.
+				; Returns:  If CF=0, the operation was successful;
+				;           otherwise, CF=1 and AX contains an
+				;           error code.
+				;-----------------------------------------------------
+ 005C  60				pusha
+ 005D  B8 7305				mov	ax,7305h			; ABSDiskReadWrite
+ 0060  B9 FFFF				mov	cx,-1              	; always -1
+ 0063  8A 16 0000 R			mov	dl,driveNumber		; drive number
+ 0067  BB 0001 R			mov	bx,OFFSET diskStruct		; sector number
+ 006A  BE 0000				mov	si,READ_MODE		; read mode
+ 006D  CD 21				int	21h               	; read disk sector
+ 006F  61				popa
+ 0070  C3				ret
+ 0071				ReadSector ENDP
+
+				;-----------------------------------------------------
+ 0071				DisplaySector PROC
+				;
+				; Display the sector data in <buffer>, using INT 10h
+				; BIOS function calls. This avoids filtering of ASCII
+				; control codes.
+				; Receives: nothing. Returns: nothing.
+				; Requires: buffer must contain sector data.
+				;-----------------------------------------------------
+ 0071  BA 0262 R			mov	dx,OFFSET strHeading	; display heading
+ 0074  E8 0000 E			call	WriteString
+ 0077  66| A1 0001 R			mov	eax,diskStruct.startSector	; display sector number
+ 007B  E8 0000 E			call	WriteDec
+ 007E  BA 020E R			mov	dx,OFFSET strLine    	; horizontal line
+ 0081  E8 0000 E			call	Writestring
+ 0084  BE 000B R			mov	si,OFFSET buffer    	; point to buffer
+ 0087  C6 06 020C R 05			mov	curr_row,DATA_ROW		; set row, column
+ 008C  C6 06 020D R 00			mov	curr_col,DATA_COL
+					INVOKE SetCursor,curr_row,curr_col
+
+ 009C  B9 0200				mov	cx,SECTOR_SIZE    		; loop counter
+ 009F  B7 00				mov	bh,0              		; video page 0
+ 00A1  51			L1:	push	cx                		; save loop counter
+ 00A2  B4 0A				mov	ah,0Ah            		; display character
+ 00A4  8A 04				mov	al,[si]           		; get byte from buffer
+ 00A6  B9 0001				mov	cx,1              		; display it
+ 00A9  CD 10				int	10h
+ 00AB  E8 0005				call	MoveCursor
+ 00AE  46				inc	si                		; point to next byte
+ 00AF  59				pop	cx                		; restore loop counter
+ 00B0  E2 EF				loop	L1                		; repeat the loop
+ 00B2  C3				ret
+ 00B3				DisplaySector ENDP
+
+				;-----------------------------------------------
+ 00B3				MoveCursor PROC
+				;
+				; Advance the cursor to the next column,
+				; check for possible wraparound on screen.
+				;-----------------------------------------------
+ 00B3  80 3E 020D R 4F			cmp	curr_col,79		; last column?
+ 00B8  73 06				jae	L1         		; yes: go to next row
+ 00BA  FE 06 020D R			inc	curr_col			; no: increment column
+ 00BE  EB 09				jmp	L2
+ 00C0  C6 06 020D R 00		L1:	mov	curr_col,0		; next row
+ 00C5  FE 06 020C R			inc	curr_row
+ 00C9				L2:	INVOKE Setcursor,curr_row,curr_col
+ 00D4  C3				ret
+ 00D5				MoveCursor ENDP
+
+				;-----------------------------------------------------
+ 00D5				Setcursor PROC USES dx,
+					row:BYTE, col:BYTE
+				;
+				; Set the screen cursor position
+				;-----------------------------------------------------
+ 00D9  8A 76 04				mov	dh, row
+ 00DC  8A 56 06				mov	dl, col
+ 00DF  E8 0000 E			call	Gotoxy
+					ret
+ 00E7				Setcursor ENDP
+				END main
+Microsoft (R) Macro Assembler Version 8.00.50727.104	    05/02/09 00:48:02
+0Sector Display Program              (Sector.asm	     Symbols 2 - 1
+
+
+
+
+Structures and Unions:
+
+                N a m e                  Size
+                                         Offset      Type
+
+CursorPosStruc . . . . . . . . .	 0002
+  Ycoord . . . . . . . . . . . .	 0000	     Byte
+  Xcoord . . . . . . . . . . . .	 0001	     Byte
+DiskIO . . . . . . . . . . . . .	 000A
+  startSector  . . . . . . . . .	 0000	     DWord
+  numSectors . . . . . . . . . .	 0004	     Word
+  bufferOfs  . . . . . . . . . .	 0006	     Word
+  bufferSeg  . . . . . . . . . .	 0008	     Word
+ExtGetDskFreSpcStruc . . . . . .	 002C
+  StructSize . . . . . . . . . .	 0000	     Word
+  Level  . . . . . . . . . . . .	 0002	     Word
+  SectorsPerCluster  . . . . . .	 0004	     DWord
+  BytesPerSector . . . . . . . .	 0008	     DWord
+  AvailableClusters  . . . . . .	 000C	     DWord
+  TotalClusters  . . . . . . . .	 0010	     DWord
+  AvailablePhysSectors . . . . .	 0014	     DWord
+  TotalPhysSectors . . . . . . .	 0018	     DWord
+  AvailableAllocationUnits . . .	 001C	     DWord
+  TotalAllocationUnits . . . . .	 0020	     DWord
+  Rsvd . . . . . . . . . . . . .	 0024	     DWord
+FPU_ENVIRON  . . . . . . . . . .	 001C
+  controlWord  . . . . . . . . .	 0000	     Word
+  statusWord . . . . . . . . . .	 0004	     Word
+  tagWord  . . . . . . . . . . .	 0008	     Word
+  instrPtrLow  . . . . . . . . .	 000C	     Word
+  opcodeAndInstrPtrHi  . . . . .	 0010	     DWord
+  operandPtrLow  . . . . . . . .	 0014	     Word
+  operandPtrHi . . . . . . . . .	 0018	     DWord
+TimeRecord . . . . . . . . . . .	 0004
+  hours  . . . . . . . . . . . .	 0000	     Byte
+  minutes  . . . . . . . . . . .	 0001	     Byte
+  seconds  . . . . . . . . . . .	 0002	     Byte
+  hhss . . . . . . . . . . . . .	 0003	     Byte
+VideoInfoStruc . . . . . . . . .	 0041
+  supportedInfoPtr . . . . . . .	 0000	     DWord
+  videoMode  . . . . . . . . . .	 0004	     Byte
+  numCharColumns . . . . . . . .	 0005	     Word
+  videoBufferLen . . . . . . . .	 0007	     Word
+  videoBufferStartPtr  . . . . .	 0009	     Word
+  cursors  . . . . . . . . . . .	 000B	     Word
+  cursorStartLine  . . . . . . .	 001B	     Byte
+  cursorEndLine  . . . . . . . .	 001C	     Byte
+  activeDisplayPage  . . . . . .	 001D	     Byte
+  adapterBasePortAddr  . . . . .	 001E	     Word
+  currentRegister3B8or3D8  . . .	 0020	     Byte
+  currentRegister3B9or3D9  . . .	 0021	     Byte
+  numCharRows  . . . . . . . . .	 0022	     Byte
+  characterScanHeight  . . . . .	 0023	     Word
+  activeDisplayCode  . . . . . .	 0025	     Byte
+  inactiveDisplayCode  . . . . .	 0026	     Byte
+  numberOfColors . . . . . . . .	 0027	     Word
+  numberOfVideoPages . . . . . .	 0029	     Byte
+  numberOfScanLines  . . . . . .	 002A	     Word
+  primaryCharBlock . . . . . . .	 002C	     Byte
+  secondaryCharBlock . . . . . .	 002D	     Byte
+  miscStateInfo  . . . . . . . .	 002E	     Byte
+  videoMemAvail  . . . . . . . .	 0032	     Byte
+  savePointerStateInfo . . . . .	 0033	     Byte
+
+
+Segments and Groups:
+
+                N a m e                 Size     Length   Align   Combine Class
+
+DGROUP . . . . . . . . . . . . .	GROUP
+_DATA  . . . . . . . . . . . . .	16 Bit	 034F	  Word	  Public  'DATA'	
+STACK  . . . . . . . . . . . . .	16 Bit	 0200	  Para	  Stack	  'STACK'	 
+_TEXT  . . . . . . . . . . . . .	16 Bit	 00E7	  Word	  Public  'CODE'	
+
+
+Procedures, parameters, and locals:
+
+                N a m e                 Type     Value    Attr
+
+AskForSectorNumber . . . . . . .	P Near	 003A	  _TEXT	Length= 0022 Public STDCALL
+Clrscr . . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Crlf . . . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Delay  . . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+DisplaySector  . . . . . . . . .	P Near	 0071	  _TEXT	Length= 0042 Public STDCALL
+  L1 . . . . . . . . . . . . . .	L Near	 00A1	  _TEXT	
+DumpMem  . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+DumpRegs . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+GetCommandtail . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+GetMaxXY . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+GetMseconds  . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Gotoxy . . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+IsDigit  . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+MoveCursor . . . . . . . . . . .	P Near	 00B3	  _TEXT	Length= 0022 Public STDCALL
+  L1 . . . . . . . . . . . . . .	L Near	 00C0	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 00C9	  _TEXT	
+Random32 . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+RandomRange  . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Randomize  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ReadChar . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ReadFloat  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ReadHex  . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ReadInt  . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+ReadSector . . . . . . . . . . .	P Near	 005C	  _TEXT	Length= 0015 Public STDCALL
+ReadString . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+SetTextColor . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Setcursor  . . . . . . . . . . .	P Near	 00D5	  _TEXT	Length= 0012 Public STDCALL
+  row  . . . . . . . . . . . . .	Byte	 bp + 0004
+  col  . . . . . . . . . . . . .	Byte	 bp + 0006
+ShowFPUStack . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Str_compare  . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Str_copy . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Str_length . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Str_trim . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+Str_ucase  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WaitMsg  . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteBinB  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteBin . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteChar  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteDec . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteFloat . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteHexB  . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteHex . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteInt . . . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+WriteString  . . . . . . . . . .	P Near	 0000	  Length= 0000 External STDCALL
+main . . . . . . . . . . . . . .	P Near	 0000	  _TEXT	Length= 003A Public STDCALL
+  L1 . . . . . . . . . . . . . .	L Near	 0011	  _TEXT	
+  L2 . . . . . . . . . . . . . .	L Near	 002A	  _TEXT	
+  L3 . . . . . . . . . . . . . .	L Near	 0033	  _TEXT	
+
+
+Symbols:
+
+                N a m e                 Type     Value    Attr
+
+@CodeSize  . . . . . . . . . . .	Number	 0000h	 
+@DataSize  . . . . . . . . . . .	Number	 0000h	 
+@Interface . . . . . . . . . . .	Number	 0003h	 
+@Model . . . . . . . . . . . . .	Number	 0002h	 
+@cmdline . . . . . . . . . . . .	Text   	 OFFSET __98765765cmdline
+@code  . . . . . . . . . . . . .	Text   	 _TEXT
+@data  . . . . . . . . . . . . .	Text   	 DGROUP
+@fardata?  . . . . . . . . . . .	Text   	 FAR_BSS
+@fardata . . . . . . . . . . . .	Text   	 FAR_DATA
+@stack . . . . . . . . . . . . .	Text   	 DGROUP
+ACTION_CREATED_OPENED  . . . . .	Number	 0002h	 
+ACTION_OPENED  . . . . . . . . .	Number	 0001h	 
+ACTION_REPLACED_OPENED . . . . .	Number	 0003h	 
+DATA_COL . . . . . . . . . . . .	Number	 0000h	 
+DATA_ROW . . . . . . . . . . . .	Number	 0005h	 
+EOLN . . . . . . . . . . . . . .	Text   	 0dh,0ah
+ESC_KEY  . . . . . . . . . . . .	Number	 001Bh	 
+FILE_CREATE  . . . . . . . . . .	Number	 0010h	 
+FILE_OPEN  . . . . . . . . . . .	Number	 0001h	 
+FILE_TRUNCATE  . . . . . . . . .	Number	 0002h	 
+LIGHT_BLUE . . . . . . . . . . .	Number	 0009h	 
+LIGHT_CYAN . . . . . . . . . . .	Number	 000Bh	 
+LIGHT_GRAY . . . . . . . . . . .	Number	 0007h	 
+LIGHT_GREEN  . . . . . . . . . .	Number	 000Ah	 
+LIGHT_MAGENTA  . . . . . . . . .	Number	 000Dh	 
+LIGHT_RED  . . . . . . . . . . .	Number	 000Ch	 
+OPEN_ACCESS_READONLY . . . . . .	Number	 0000h	 
+OPEN_ACCESS_READWRITE  . . . . .	Number	 0002h	 
+OPEN_ACCESS_RO_NOMODLASTACCESS .	Number	 0004h	 
+OPEN_ACCESS_WRITEONLY  . . . . .	Number	 0001h	 
+OPEN_FLAGS_ALIAS_HINT  . . . . .	Number	 0400h	 
+OPEN_FLAGS_COMMIT  . . . . . . .	Number	 4000h	 
+OPEN_FLAGS_NOCRITERR . . . . . .	Number	 2000h	 
+OPEN_FLAGS_NOINHERIT . . . . . .	Number	 0080h	 
+OPEN_FLAGS_NO_BUFFERING  . . . .	Number	 0100h	 
+OPEN_FLAGS_NO_COMPRESS . . . . .	Number	 0200h	 
+OPEN_SHARE_COMPATIBLE  . . . . .	Number	 0000h	 
+OPEN_SHARE_DENYNONE  . . . . . .	Number	 0040h	 
+OPEN_SHARE_DENYREADWRITE . . . .	Number	 0010h	 
+OPEN_SHARE_DENYREAD  . . . . . .	Number	 0030h	 
+OPEN_SHARE_DENYWRITE . . . . . .	Number	 0020h	 
+READ_MODE  . . . . . . . . . . .	Number	 0000h	 
+SECTOR_SIZE  . . . . . . . . . .	Number	 0200h	 
+_A_ARCH  . . . . . . . . . . . .	Number	 0020h	 
+_A_HIDDEN  . . . . . . . . . . .	Number	 0002h	 
+_A_NORMAL  . . . . . . . . . . .	Number	 0000h	 
+_A_RDONLY  . . . . . . . . . . .	Number	 0001h	 
+_A_SYSTEM  . . . . . . . . . . .	Number	 0004h	 
+_A_VOLID . . . . . . . . . . . .	Number	 0008h	 
+black  . . . . . . . . . . . . .	Number	 0000h	 
+blue . . . . . . . . . . . . . .	Number	 0001h	 
+brown  . . . . . . . . . . . . .	Number	 0006h	 
+buffer . . . . . . . . . . . . .	Byte	 000B	  _DATA	
+curr_col . . . . . . . . . . . .	Byte	 020D	  _DATA	
+curr_row . . . . . . . . . . . .	Byte	 020C	  _DATA	
+cyan . . . . . . . . . . . . . .	Number	 0003h	 
+diskStruct . . . . . . . . . . .	DiskIO	 0001	  _DATA	
+driveNumber  . . . . . . . . . .	Byte	 0000	  _DATA	
+exit . . . . . . . . . . . . . .	Text   	 .EXIT
+gray . . . . . . . . . . . . . .	Number	 0008h	 
+green  . . . . . . . . . . . . .	Number	 0002h	 
+lightBlue  . . . . . . . . . . .	Number	 0009h	 
+lightCyan  . . . . . . . . . . .	Number	 000Bh	 
+lightGray  . . . . . . . . . . .	Number	 0007h	 
+lightGreen . . . . . . . . . . .	Number	 000Ah	 
+lightMagenta . . . . . . . . . .	Number	 000Dh	 
+lightRed . . . . . . . . . . . .	Number	 000Ch	 
+magenta  . . . . . . . . . . . .	Number	 0005h	 
+red  . . . . . . . . . . . . . .	Number	 0004h	 
+strAskDrive  . . . . . . . . . .	Byte	 02A9	  _DATA	
+strAskSector . . . . . . . . . .	Byte	 028A	  _DATA	
+strCannotRead  . . . . . . . . .	Byte	 02DD	  _DATA	
+strHeading . . . . . . . . . . .	Byte	 0262	  _DATA	
+strLine  . . . . . . . . . . . .	Byte	 020E	  _DATA	
+strReadingSector . . . . . . . .	Byte	 030E	  _DATA	
+white  . . . . . . . . . . . . .	Number	 000Fh	 
+yellow . . . . . . . . . . . . .	Number	 000Eh	 
+
+	   0 Warnings
+	   0 Errors

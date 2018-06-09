@@ -1,0 +1,29 @@
+﻿Build started 11/20/2013 5:34:50 PM.
+     1>Project "D:\Asmbook 7\examples\ch08\32 bit\ModSum32_advanced\ModSum\ModSum.vcxproj" on node 2 (Rebuild target(s)).
+     1>_MASM:
+         Assembling _arrysum.asm...
+         cmd.exe /C "C:\Users\Kip\AppData\Local\Temp\tmp726bd4d829ec4ea4ad5e3bd2729037fb.cmd"
+         ml.exe /c /nologo /Zi /Fo"Debug\_arrysum.obj" /I "c:\irvine" /W3 /errorReport:prompt  /Ta_arrysum.asm
+       _MASM:
+         Assembling _display.asm...
+         cmd.exe /C "C:\Users\Kip\AppData\Local\Temp\tmp29458e45d8f448fb892b477702474869.cmd"
+         ml.exe /c /nologo /Zi /Fo"Debug\_display.obj" /I "c:\irvine" /W3 /errorReport:prompt  /Ta_display.asm
+       _MASM:
+         Assembling _prompt.asm...
+         cmd.exe /C "C:\Users\Kip\AppData\Local\Temp\tmp48dde102f38b4dc791e305b4f716b0ad.cmd"
+         ml.exe /c /nologo /Zi /Fo"Debug\_prompt.obj" /I "c:\irvine" /W3 /errorReport:prompt  /Ta_prompt.asm
+       _MASM:
+         Assembling Sum_main.asm...
+         cmd.exe /C "C:\Users\Kip\AppData\Local\Temp\tmp1513a2caddda4847a2dd0bbde60412be.cmd"
+         ml.exe /c /nologo /Zi /Fo"Debug\Sum_main.obj" /I "c:\irvine" /W3 /errorReport:prompt  /TaSum_main.asm
+       Link:
+         C:\Program Files\Microsoft Visual Studio 11.0\VC\bin\link.exe /ERRORREPORT:PROMPT /OUT:"D:\Asmbook 7\examples\ch08\32 bit\ModSum32_advanced\ModSum\Debug\ModSum.exe" /NOLOGO c:\Irvine\Irvine32.lib user32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:\Asmbook 7\examples\ch08\32 bit\ModSum32_advanced\ModSum\Debug\ModSum.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE:NO /IMPLIB:"D:\Asmbook 7\examples\ch08\32 bit\ModSum32_advanced\ModSum\Debug\ModSum.lib" /MACHINE:X86 /SAFESEH:NO Debug\_arrysum.obj
+         Debug\_display.obj
+         Debug\_prompt.obj
+         Debug\Sum_main.obj
+         ModSum.vcxproj -> D:\Asmbook 7\examples\ch08\32 bit\ModSum32_advanced\ModSum\Debug\ModSum.exe
+     1>Done Building Project "D:\Asmbook 7\examples\ch08\32 bit\ModSum32_advanced\ModSum\ModSum.vcxproj" (Rebuild target(s)).
+
+Build succeeded.
+
+Time Elapsed 00:00:00.59

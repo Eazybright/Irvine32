@@ -1,0 +1,105 @@
+Microsoft (R) Macro Assembler Version 11.00.60315.1	    01/05/14 12:47:26
+..\..\ch04\32 bit\AdditionTest.asm			     Page 1 - 1
+
+
+				; Addition and Subtraction					(AddSubTest.asm)
+
+				; Chapter 4 example. Demonstration of ADD, SUB,
+				; INC, DEC, and NEG instructions, and how
+				; they affect the CPU status flags.
+
+				.386
+				.model flat,stdcall
+				.stack 4096
+				ExitProcess proto,dwExitCode:dword
+
+ 00000000			.data
+ 00000000 00000000		Rval   SDWORD ?
+ 00000004 0000001A		Xval   SDWORD 26
+ 00000008 0000001E		Yval   SDWORD 30
+ 0000000C 00000028		Zval   SDWORD 40
+
+ 00000000			.code
+ 00000000			main proc
+					; INC and DEC
+ 00000000  66| B8 1000			mov	ax,1000h
+ 00000004  66| 40			inc	ax		; 1001h
+ 00000006  66| 48			dec	ax		; 1000h
+
+					; Expression: Rval = -Xval + (Yval - Zval)
+ 00000008  A1 00000004 R		mov	eax,Xval
+ 0000000D  F7 D8			neg	eax			; -26
+ 0000000F  8B 1D 00000008 R		mov	ebx,Yval
+ 00000015  2B 1D 0000000C R		sub	ebx,Zval	; -10
+ 0000001B  03 C3			add	eax,ebx
+ 0000001D  A3 00000000 R		mov	Rval,eax	; -36
+
+					; Zero flag example:
+ 00000022  66| B9 0001			mov	cx,1
+ 00000026  66| 83 E9 01			sub	cx,1		; ZF = 1
+ 0000002A  66| B8 FFFF			mov	ax,0FFFFh
+ 0000002E  66| 40			inc	ax			; ZF = 1
+
+					; Sign flag example:
+ 00000030  66| B9 0000			mov	cx,0
+ 00000034  66| 83 E9 01			sub	cx,1		; SF = 1
+ 00000038  66| B8 7FFF			mov	ax,7FFFh
+ 0000003C  66| 83 C0 02			add	ax,2		; SF = 1
+
+					; Carry flag example:
+ 00000040  B0 FF			mov	al,0FFh
+ 00000042  04 01			add	al,1		; CF = 1,  AL = 00
+
+					; Overflow flag example:
+ 00000044  B0 7F			mov	al,+127
+ 00000046  04 01			add	al,1		; OF = 1
+ 00000048  B0 80			mov	al,-128
+ 0000004A  2C 01			sub	al,1		; OF = 1
+
+					invoke ExitProcess,0
+ 00000053			main endp
+				end main
+Microsoft (R) Macro Assembler Version 11.00.60315.1	    01/05/14 12:47:26
+..\..\ch04\32 bit\AdditionTest.asm			     Symbols 2 - 1
+
+
+
+
+Segments and Groups:
+
+                N a m e                 Size     Length   Align   Combine Class
+
+FLAT . . . . . . . . . . . . . .	GROUP
+STACK  . . . . . . . . . . . . .	32 Bit	 00001000 DWord	  Stack	  'STACK'	 
+_DATA  . . . . . . . . . . . . .	32 Bit	 00000010 DWord	  Public  'DATA'	
+_TEXT  . . . . . . . . . . . . .	32 Bit	 00000053 DWord	  Public  'CODE'	
+
+
+Procedures, parameters, and locals:
+
+                N a m e                 Type     Value    Attr
+
+ExitProcess  . . . . . . . . . .	P Near	 00000000 FLAT	Length= 00000000 External STDCALL
+main . . . . . . . . . . . . . .	P Near	 00000000 _TEXT	Length= 00000053 Public STDCALL
+
+
+Symbols:
+
+                N a m e                 Type     Value    Attr
+
+@CodeSize  . . . . . . . . . . .	Number	 00000000h   
+@DataSize  . . . . . . . . . . .	Number	 00000000h   
+@Interface . . . . . . . . . . .	Number	 00000003h   
+@Model . . . . . . . . . . . . .	Number	 00000007h   
+@code  . . . . . . . . . . . . .	Text   	 _TEXT
+@data  . . . . . . . . . . . . .	Text   	 FLAT
+@fardata?  . . . . . . . . . . .	Text   	 FLAT
+@fardata . . . . . . . . . . . .	Text   	 FLAT
+@stack . . . . . . . . . . . . .	Text   	 FLAT
+Rval . . . . . . . . . . . . . .	DWord	 00000000 _DATA	
+Xval . . . . . . . . . . . . . .	DWord	 00000004 _DATA	
+Yval . . . . . . . . . . . . . .	DWord	 00000008 _DATA	
+Zval . . . . . . . . . . . . . .	DWord	 0000000C _DATA	
+
+	   0 Warnings
+	   0 Errors

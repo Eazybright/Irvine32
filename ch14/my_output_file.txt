@@ -1,0 +1,52 @@
+; Read a text file         (Readfile.asm)
+
+; Last update: 9/11/01
+
+INCLUDE Irvine16.inc
+
+.data
+BufSize = 5000
+
+fileName BYTE "myfile.txt",0
+inHandle WORD ?
+buffer   BYTE BufSize DUP(?)
+bytesRead WORD ?
+
+.code
+main PROC
+    mov  ax,@data
+    mov  ds,ax
+
+; Open input file
+	mov ah,3Dh    	; function: open file
+	mov al,0      	; input mode
+	mov dx,OFFSET fileName
+	int 21h       	; call DOS
+	jc  quit
+	mov inHandle,ax
+
+; Read the input file
+	mov ah,3Fh	; read file or device
+	mov bx,inHandle
+	mov cx,BufSize
+	mov dx,OFFSET buffer
+	int 21h
+	jc  quit
+	mov bytesRead,ax
+
+; Display the buffer
+	mov ah,40h
+	mov bx,1	; console output
+	mov cx,bytesRead
+	mov dx,OFFSET buffer
+	int 21h
+	jc  quit
+
+; Close the file
+	mov  ah,3Eh    	; function: close file
+	int  21h       	; call DOS
+	call Crlf
+quit:
+    .exit
+main ENDP
+END main

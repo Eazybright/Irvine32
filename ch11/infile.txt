@@ -1,0 +1,8 @@
+Why not write the type of graphical applications you usually see 
+running under MS-Windows? The main reason is that they tend to 
+be extremely long and detailed. For years, C and C++ programmers 
+have labored over technical details such as graphical device handles, 
+message posting, font metrics, device bitmaps, and mapping modes, 
+with the help of excellent authors. In fact, there is a devoted group 
+of assembly language programmers on the Web who are quite good 
+at Windows programming. 
